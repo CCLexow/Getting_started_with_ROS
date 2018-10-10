@@ -1,16 +1,24 @@
 #MicroXplorer Configuration settings - do not modify
 ADC1.Channel-54\#ChannelRegularConversion=ADC_CHANNEL_0
-ADC1.IPParameters=Rank-54\#ChannelRegularConversion,Channel-54\#ChannelRegularConversion,SamplingTime-54\#ChannelRegularConversion,NbrOfConversionFlag,master,NbrOfConversion
+ADC1.ContinuousConvMode=DISABLE
+ADC1.DataAlign=ADC_DATAALIGN_RIGHT
+ADC1.DiscontinuousConvMode=DISABLE
+ADC1.EnableAnalogWatchDog=false
+ADC1.EnableRegularConversion=ENABLE
+ADC1.ExternalTrigConv=ADC_SOFTWARE_START
+ADC1.IPParameters=Rank-54\#ChannelRegularConversion,Channel-54\#ChannelRegularConversion,SamplingTime-54\#ChannelRegularConversion,NbrOfConversionFlag,master,NbrOfConversion,DataAlign,ScanConvMode,ContinuousConvMode,DiscontinuousConvMode,EnableRegularConversion,ExternalTrigConv,InjNumberOfConversion,EnableAnalogWatchDog
+ADC1.InjNumberOfConversion=0
 ADC1.NbrOfConversion=1
 ADC1.NbrOfConversionFlag=1
 ADC1.Rank-54\#ChannelRegularConversion=1
 ADC1.SamplingTime-54\#ChannelRegularConversion=ADC_SAMPLETIME_1CYCLE_5
+ADC1.ScanConvMode=ADC_SCAN_DISABLE
 ADC1.master=1
 FREERTOS.FootprintOK=true
 FREERTOS.INCLUDE_vTaskDelayUntil=1
 FREERTOS.IPParameters=Tasks01,FootprintOK,configTOTAL_HEAP_SIZE,INCLUDE_vTaskDelayUntil
-FREERTOS.Tasks01=Main_Task,0,1024,MainTaskWork,Default,NULL,Dynamic,NULL,NULL;COM_Task,0,512,COMTaskWork,Default,NULL,Dynamic,NULL,NULL
-FREERTOS.configTOTAL_HEAP_SIZE=7168
+FREERTOS.Tasks01=Main_Task,0,1024,MainTaskWork,Default,NULL,Dynamic,NULL,NULL;COM_Task,0,512,COMTaskWork,Default,NULL,Dynamic,NULL,NULL;SampleSensorsTa,0,256,SampleSensorsWork,Default,NULL,Dynamic,NULL,NULL
+FREERTOS.configTOTAL_HEAP_SIZE=10240
 File.Version=6
 KeepUserPlacement=false
 Mcu.Family=STM32F1

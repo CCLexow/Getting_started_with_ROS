@@ -61,6 +61,7 @@ ADC_HandleTypeDef hadc1;
 
 osThreadId Main_TaskHandle;
 osThreadId COM_TaskHandle;
+osThreadId SampleSensorsTaHandle;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
@@ -74,6 +75,7 @@ static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 void MainTaskWork(void const * argument);
 void COMTaskWork(void const * argument);
+void SampleSensorsWork(void const * argument);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
@@ -81,6 +83,57 @@ void COMTaskWork(void const * argument);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
+
+#define LINBUFFSIZE		100
+typedef struct strBuffer
+{
+	uint32_t au32Buffer[LINBUFFSIZE];
+	uint16_t u16BufferWriteIdx;
+	uint16_t u16BufferFree;
+}T_LinearBuffer;
+
+T_LinearBuffer xLinearBuffer_1;
+T_LinearBuffer xLinearBuffer_2;
+T_LinearBuffer * pxLinearBufferActive;
+T_LinearBuffer * pxLinearBufferReadyForTx;
+
+void LinearBufferFlush(T_LinearBuffer * pxLinBuff)
+{
+	/* preset buffer with zeros */
+	for(pxLinBuff->u16BufferWriteIdx=0;pxLinBuff->u16BufferWriteIdx<LINBUFFSIZE;pxLinBuff->u16BufferWriteIdx++)
+	{
+		pxLinBuff->au32Buffer[pxLinBuff->u16BufferWriteIdx] = 0;
+	}
+
+	/* preset variables */
+	pxLinBuff->u16BufferFree = LINBUFFSIZE;
+	pxLinBuff->u16BufferWriteIdx = 0;
+}
+
+uint8_t u08LinearBufferPush(T_LinearBuffer * pxLinBuff, uint32_t u32Value)
+{
+	if(0 < pxLinBuff->u16BufferFree)
+	{
+		pxLinBuff->au32Buffer[pxLinBuff->u16BufferWriteIdx] = u32Value;
+		pxLinBuff->u16BufferWriteIdx++;
+		pxLinBuff->u16BufferFree--;
+		return 1;
+	}
+	else
+	{
+		return 0;
+	}
+}
+
+void Init_Linear_Buffers(void)
+{
+	/* flush linear buffers */
+	LinearBufferFlush(&xLinearBuffer_1);
+	LinearBufferFlush(&xLinearBuffer_2);
+	/* assign linear buffer pointer */
+	pxLinearBufferActive = & xLinearBuffer_1;
+	pxLinearBufferReadyForTx = 0;
+}
 
 /* USER CODE END 0 */
 
@@ -92,7 +145,7 @@ void COMTaskWork(void const * argument);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+	Init_Linear_Buffers();
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -138,6 +191,10 @@ int main(void)
   /* definition and creation of COM_Task */
   osThreadDef(COM_Task, COMTaskWork, osPriorityNormal, 0, 512);
   COM_TaskHandle = osThreadCreate(osThread(COM_Task), NULL);
+
+  /* definition and creation of SampleSensorsTa */
+  osThreadDef(SampleSensorsTa, SampleSensorsWork, osPriorityNormal, 0, 256);
+  SampleSensorsTaHandle = osThreadCreate(osThread(SampleSensorsTa), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -296,14 +353,22 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+typedef enum eSensorSampling{
+	eSensorSampling_Stopped = 0,
+	eSensorSampling_Running
+}T_Sensor_Sampling_States;
+T_Sensor_Sampling_States xSensorSamplingCurrentState = eSensorSampling_Stopped;
+T_Sensor_Sampling_States xSensorSamplingNewState = eSensorSampling_Stopped;
+
+
 typedef enum{
 	eMain_TxStopped = 0,
 	eMain_TxContinuous,
 	eMain_TxNSamples
 }T_Main_Tx_States;
-T_Main_Tx_States xMainTxState = eMain_TxContinuous;
+T_Main_Tx_States xMainTxState = eMain_TxStopped;
 
-uint16_t u16TxSampleCnt;
+int32_t i32TxSampleCnt;
 
 #define  SERIAL_CMD_MAX_LENGTH	20
 typedef struct USB_RX_Command_Struct
@@ -325,6 +390,12 @@ void FlushRxCmd(void)
 	  xUartRxCmd.au08CommandBuffer[u08Idx] = 0;
 	}
 	xUartRxCmd.u08FreeBytes = SERIAL_CMD_MAX_LENGTH;
+
+	received_data_size = 0;
+	for(uint8_t u08FlushIdx=0; u08FlushIdx<100;u08FlushIdx++)
+	{
+		received_data[u08FlushIdx]=0;
+	}
 }
 
 void AnalyseRxCmd(void)
@@ -354,12 +425,14 @@ void AnalyseRxCmd(void)
 	{
 		/* request to stop reflow process */
 		xMainTxState = eMain_TxContinuous;
+		xSensorSamplingNewState = eSensorSampling_Running;
 
 	}
 	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_stop_sample_distance_sensor))
 	{
 		/* request to stop reflow process */
 		xMainTxState = eMain_TxStopped;
+		xSensorSamplingNewState = eSensorSampling_Stopped;
 
 	}
 	else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_sample_distance_sensor_N, &i32Param))
@@ -367,8 +440,9 @@ void AnalyseRxCmd(void)
 		if(0 < i32Param){
 			if(UINT16_MAX >= i32Param)
 			{
-				u16TxSampleCnt = (uint16_t)i32Param;
+				i32TxSampleCnt = i32Param;
 				xMainTxState = eMain_TxNSamples;
+				xSensorSamplingNewState = eSensorSampling_Running;
 			}
 		}
 	}
@@ -405,21 +479,30 @@ uint32_t Distance_ConvertSensorOutput(void)
 	return u32DistSensorVal/DISTSENSE_VOUT_SAMPLING_CNT;
 }
 
-void Print_Sensor_Data(uint32_t u32Data)
+uint8_t au08DataOutput[1500];
+//void Print_Sensor_Data(uint32_t u32Data)
+void Print_Sensor_Data(T_LinearBuffer * pxLinBuff)
 {
-	uint8_t au08DataOutput[100];
-	static uint8_t su08MsgCnt = 0;
+	static uint16_t su16MsgCnt = 0;
 	volatile float fltADCVoltage;
 	volatile uint16_t u16ADCVoltage;
+	uint16_t u16StrIdx = 0;
 
 	if(USBD_STATE_CONFIGURED == hUsbDeviceFS.dev_state)
 	{
-		fltADCVoltage = u32Data * 3.3f;
-		fltADCVoltage /= 4096;
-		fltADCVoltage *= 100;
-		u16ADCVoltage = (uint16_t)fltADCVoltage;
-		sprintf((char *)&au08DataOutput[0], "%d %d %d\n", su08MsgCnt, u32Data,u16ADCVoltage);
-		su08MsgCnt++;
+
+		for(uint16_t u16Idx=0; u16Idx < LINBUFFSIZE; u16Idx++)
+		{
+			fltADCVoltage = (float)pxLinBuff->au32Buffer[u16Idx];
+			fltADCVoltage *= 3.3f;
+			fltADCVoltage /= 4096;
+			fltADCVoltage *= 100;
+			u16ADCVoltage = (uint16_t)fltADCVoltage;
+			u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%d %d %d\n", su16MsgCnt, pxLinBuff->au32Buffer[u16Idx],u16ADCVoltage);
+		}
+
+
+		su16MsgCnt++;
 		CDC_Transmit_FS(&au08DataOutput[0],strlen(au08DataOutput));
 	}
 }
@@ -435,7 +518,7 @@ void MainTaskWork(void const * argument)
   /* USER CODE BEGIN 5 */
 	TickType_t xLastWakeTime;
 	const TickType_t xFrequency = 100; // every 100 ms
-	volatile uint32_t u32ADCVal;
+
 	// Initialise the xLastWakeTime variable with the current time.
 	xLastWakeTime = xTaskGetTickCount();
   /* Infinite loop */
@@ -443,8 +526,43 @@ void MainTaskWork(void const * argument)
 	{
 		/* create fixed frequency task calling */
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);
-		HAL_GPIO_TogglePin(SYS_LED_GPIO_Port,SYS_LED_Pin);
 
+		/* decide if sensor data shall be transmitted via USB */
+		if(eMain_TxContinuous == xMainTxState)
+		{
+			if(0 != pxLinearBufferReadyForTx)
+			{
+				/* transmit buffer content */
+				Print_Sensor_Data(pxLinearBufferReadyForTx);
+				/* flush buffer */
+				LinearBufferFlush(pxLinearBufferReadyForTx);
+				/* mark buffer as transmitted */
+				pxLinearBufferReadyForTx = 0;
+			}
+		}
+		else if(eMain_TxNSamples == xMainTxState)
+		{
+			if(0 < i32TxSampleCnt)
+			{
+				if(0 != pxLinearBufferReadyForTx)
+				{
+					/* count sample */
+					i32TxSampleCnt--;
+					/* transmit buffer content */
+					Print_Sensor_Data(pxLinearBufferReadyForTx);
+					/* flush buffer */
+					LinearBufferFlush(pxLinearBufferReadyForTx);
+					/* mark buffer as transmitted */
+					pxLinearBufferReadyForTx = 0;
+				}
+			}
+			else
+			{
+				xMainTxState = eMain_TxStopped;
+				xSensorSamplingNewState = eSensorSampling_Stopped;
+			}
+		}
+/*
 		u32ADCVal = Distance_ConvertSensorOutput();
 
 		if(eMain_TxContinuous == xMainTxState)
@@ -463,7 +581,7 @@ void MainTaskWork(void const * argument)
 				xMainTxState = eMain_TxStopped;
 			}
 		}
-
+*/
 	}
   /* USER CODE END 5 */ 
 }
@@ -549,6 +667,143 @@ void COMTaskWork(void const * argument)
 		}
 	}
   /* USER CODE END COMTaskWork */
+}
+typedef enum eLEDPattern
+{
+	eLED_Idle = 0,
+	eLED_Running
+}T_LED_Pattern;
+#define LED_IDLE_ON		480
+#define LED_IDLE_OFF	20
+#define LED_RUNNING		100
+
+inline void LED_Work(T_LED_Pattern xLEDPattern)
+{
+	static uint16_t su16LEDCnt = LED_IDLE_OFF;
+	static T_LED_Pattern xLEDPatternLast = eLED_Idle;
+	static GPIO_PinState sxLEDPinState = GPIO_PIN_RESET;
+
+	/* check which led pattern was chosen */
+	if(eLED_Running == xLEDPattern)
+	{
+		/* new state ? */
+		if(xLEDPattern != xLEDPatternLast)
+		{
+			su16LEDCnt = LED_RUNNING;
+			sxLEDPinState = GPIO_PIN_SET;
+			/* take over state */
+			xLEDPatternLast = xLEDPattern;
+		}
+		else
+		{
+			su16LEDCnt--;
+			if(0 == su16LEDCnt)
+			{
+				if(GPIO_PIN_RESET == sxLEDPinState)
+				{
+					su16LEDCnt = LED_RUNNING;
+					sxLEDPinState = GPIO_PIN_SET;
+				}
+				else
+				{
+					su16LEDCnt = LED_RUNNING;
+					sxLEDPinState = GPIO_PIN_RESET;
+				}
+			}
+		}
+	}
+	else if(eLED_Idle == xLEDPattern)
+	{
+		/* new state ? */
+		if(xLEDPattern != xLEDPatternLast)
+		{
+			su16LEDCnt = LED_IDLE_ON;
+			sxLEDPinState = GPIO_PIN_SET;
+			/* take over state */
+			xLEDPatternLast = xLEDPattern;
+		}
+		else
+		{
+			su16LEDCnt--;
+			if(0 == su16LEDCnt)
+			{
+				if(GPIO_PIN_RESET == sxLEDPinState)
+				{
+					su16LEDCnt = LED_IDLE_ON;
+					sxLEDPinState = GPIO_PIN_SET;
+				}
+				else
+				{
+					su16LEDCnt = LED_IDLE_OFF;
+					sxLEDPinState = GPIO_PIN_RESET;
+				}
+			}
+		}
+	}
+
+	/* write to led pin */
+	HAL_GPIO_WritePin(SYS_LED_GPIO_Port,SYS_LED_Pin,sxLEDPinState);
+
+}
+/* SampleSensorsWork function */
+void SampleSensorsWork(void const * argument)
+{
+  /* USER CODE BEGIN SampleSensorsWork */
+	TickType_t xLastWakeTime;
+	const TickType_t xFrequency = 1; // every 100 ms
+	uint8_t u08RetVal;
+
+	volatile uint32_t u32ADCVal;
+
+	// Initialise the xLastWakeTime variable with the current time.
+	xLastWakeTime = xTaskGetTickCount();
+
+	/* Infinite loop */
+	for(;;)
+	{
+		/* create fixed frequency task calling */
+		vTaskDelayUntil(&xLastWakeTime, xFrequency);
+
+		if(eSensorSampling_Running == xSensorSamplingCurrentState)
+		{
+			LED_Work(eLED_Running);
+			/* sample distance sensor */
+			u32ADCVal = Distance_ConvertSensorOutput();
+			/* put value onto buffer */
+			u08RetVal = u08LinearBufferPush(pxLinearBufferActive, u32ADCVal);
+			/* check if buffer is full */
+			if(0 == u08RetVal)
+			{
+				/* buffer is full */
+				/* mark this buffer as ready for tx */
+				pxLinearBufferReadyForTx = pxLinearBufferActive;
+				/* switch to other buffer */
+				if(&xLinearBuffer_1 == pxLinearBufferActive)
+				{
+					pxLinearBufferActive = &xLinearBuffer_2;
+				}
+				else if(&xLinearBuffer_2 == pxLinearBufferActive)
+				{
+					pxLinearBufferActive = &xLinearBuffer_1;
+				}
+				/* take over new state */
+				xSensorSamplingCurrentState = xSensorSamplingNewState;
+			}
+		}
+		else if(eSensorSampling_Stopped == xSensorSamplingCurrentState)
+		{
+			LED_Work(eLED_Idle);
+			/* check if sensor sampling shall be enabled */
+			if(eSensorSampling_Running == xSensorSamplingNewState)
+			{
+				/* init buffers and pointers */
+				Init_Linear_Buffers();
+				/* and take over new state */
+				xSensorSamplingCurrentState = xSensorSamplingNewState;
+			}
+		}
+	}
+  /* USER CODE END SampleSensorsWork */
 }
 
 /**

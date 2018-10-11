@@ -1,3 +1,8 @@
 *.DS_Store
 *.FCStd1
 *.bak
+*.kicad_pcb-bak
+*.kicad_pcb.bak
+*.drl
+*.gbr
+*.gcode

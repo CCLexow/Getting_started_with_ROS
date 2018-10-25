@@ -6,41 +6,41 @@
   ******************************************************************************
   * This notice applies to any and all portions of this file
   * that are not between comment pairs USER CODE BEGIN and
-  * USER CODE END. Other portions of this file, whether 
+  * USER CODE END. Other portions of this file, whether
   * inserted by the user or by software development tools
   * are owned by their respective copyright owners.
   *
-  * Copyright (c) 2018 STMicroelectronics International N.V. 
+  * Copyright (c) 2018 STMicroelectronics International N.V.
   * All rights reserved.
   *
-  * Redistribution and use in source and binary forms, with or without 
+  * Redistribution and use in source and binary forms, with or without
   * modification, are permitted, provided that the following conditions are met:
   *
-  * 1. Redistribution of source code must retain the above copyright notice, 
+  * 1. Redistribution of source code must retain the above copyright notice,
   *    this list of conditions and the following disclaimer.
   * 2. Redistributions in binary form must reproduce the above copyright notice,
   *    this list of conditions and the following disclaimer in the documentation
   *    and/or other materials provided with the distribution.
-  * 3. Neither the name of STMicroelectronics nor the names of other 
-  *    contributors to this software may be used to endorse or promote products 
+  * 3. Neither the name of STMicroelectronics nor the names of other
+  *    contributors to this software may be used to endorse or promote products
   *    derived from this software without specific written permission.
-  * 4. This software, including modifications and/or derivative works of this 
+  * 4. This software, including modifications and/or derivative works of this
   *    software, must execute solely and exclusively on microcontroller or
   *    microprocessor devices manufactured by or for STMicroelectronics.
-  * 5. Redistribution and use of this software other than as permitted under 
-  *    this license is void and will automatically terminate your rights under 
-  *    this license. 
+  * 5. Redistribution and use of this software other than as permitted under
+  *    this license is void and will automatically terminate your rights under
+  *    this license.
   *
-  * THIS SOFTWARE IS PROVIDED BY STMICROELECTRONICS AND CONTRIBUTORS "AS IS" 
-  * AND ANY EXPRESS, IMPLIED OR STATUTORY WARRANTIES, INCLUDING, BUT NOT 
-  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A 
+  * THIS SOFTWARE IS PROVIDED BY STMICROELECTRONICS AND CONTRIBUTORS "AS IS"
+  * AND ANY EXPRESS, IMPLIED OR STATUTORY WARRANTIES, INCLUDING, BUT NOT
+  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
   * PARTICULAR PURPOSE AND NON-INFRINGEMENT OF THIRD PARTY INTELLECTUAL PROPERTY
-  * RIGHTS ARE DISCLAIMED TO THE FULLEST EXTENT PERMITTED BY LAW. IN NO EVENT 
+  * RIGHTS ARE DISCLAIMED TO THE FULLEST EXTENT PERMITTED BY LAW. IN NO EVENT
   * SHALL STMICROELECTRONICS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
   * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-  * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, 
-  * OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF 
-  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
+  * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
+  * OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
   * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
   * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   *
@@ -62,7 +62,14 @@ ADC_HandleTypeDef hadc1;
 
 osThreadId Main_TaskHandle;
 osThreadId COM_TaskHandle;
-osThreadId SampleSensorsTaHandle;
+osThreadId SensorsTaskHandle;
+osThreadId SMTD_TaskHandle;
+osMessageQId xQMainToSensorHandle;
+osMessageQId xQSensorToMainHandle;
+osMessageQId xQMainToSTMDHandle;
+osMessageQId xQSTMDToMainHandle;
+osMessageQId xQMainToCOMHandle;
+osMessageQId xQCOMToMainHandle;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
@@ -77,6 +84,7 @@ static void MX_ADC1_Init(void);
 void MainTaskWork(void const * argument);
 void COMTaskWork(void const * argument);
 void SampleSensorsWork(void const * argument);
+void SMTDWork(void const * argument);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
@@ -84,6 +92,32 @@ void SampleSensorsWork(void const * argument);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
+
+/* definition of commands passed between tasks */
+typedef enum eMQ_CommandList
+{
+	eCMD_None = 0,
+	eCMD_Rejected,
+	eCMD_Accepted,
+	eCMD_PerformHoming,
+	eCMD_StaticMeasurement,
+	eCMD_FullScanMeasurement,
+	eCMD_PartialScanMeasurement,
+	eCMD_SampleSensor,
+	eCMD_SensorValue,
+	eCMD_PerformStep,
+	eCMD_Abort
+}T_MQ_CommandList;
+
+/* structure to hold commands and their parameters which will be passed between tasks */
+typedef struct strMQ_Command
+{
+	T_MQ_CommandList xMQ_Cmd;
+	int32_t i32MQ_Cmd_ParamA;
+	int32_t i32MQ_Cmd_ParamB;
+}T_MQ_Command;
+
+#define DIST_SENSOR_SAMPLING_CNT	100
 
 #define LINBUFFSIZE		100
 typedef struct strBuffer
@@ -138,14 +172,17 @@ void Init_Linear_Buffers(void)
 
 typedef enum eSystemMode
 {
-	eSysMode_Idle = 0,
+	eSysMode_StartUp = 0,
+	eSysMode_Idle,
 	eSysMode_Tx,
 	eSysMode_FullScan,
-	eSysMode_PartialScan
+	eSysMode_PartialScan,
+	eSysMode_StaticScan
 }T_System_Mode;
 
 T_System_Mode xSysModeNow;
 T_System_Mode xSysModeNext;
+T_System_Mode xSysMode = eSysMode_Idle; //TODO: change to start up
 
 
 #define STMD_ROTATION_INC_COARSE	   9000L
@@ -196,13 +233,13 @@ typedef enum eSTMD_StepDirection
 	eSTMD_CW = 0,
 	eSTMD_CCW
 }T_STMD_StepDirection;
-
+/*
 T_STMD_RetVals xSTMD_SetConfig(T_STMD_Config * pxSTMD_Config);
 
 T_STMD_RetVals xSTMD_PerformHomingCycle(void);
 
 T_STMD_RetVals xSTMD_PerformStep(T_STMD_StepDirection xStepDir, T_STMD_StepResolution xStepRes);
-
+*/
 
 T_STMD_Config xSTMD_Config;
 
@@ -405,22 +442,57 @@ int main(void)
   osThreadDef(COM_Task, COMTaskWork, osPriorityNormal, 0, 512);
   COM_TaskHandle = osThreadCreate(osThread(COM_Task), NULL);
 
-  /* definition and creation of SampleSensorsTa */
-  osThreadDef(SampleSensorsTa, SampleSensorsWork, osPriorityNormal, 0, 256);
-  SampleSensorsTaHandle = osThreadCreate(osThread(SampleSensorsTa), NULL);
+  /* definition and creation of SensorsTask */
+  osThreadDef(SensorsTask, SampleSensorsWork, osPriorityNormal, 0, 256);
+  SensorsTaskHandle = osThreadCreate(osThread(SensorsTask), NULL);
+
+  /* definition and creation of SMTD_Task */
+  osThreadDef(SMTD_Task, SMTDWork, osPriorityNormal, 0, 256);
+  SMTD_TaskHandle = osThreadCreate(osThread(SMTD_Task), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
 
+  /* Create the queue(s) */
+  /* definition and creation of xQMainToSensor */
+/* what about the sizeof here??? cd native code */
+  osMessageQDef(xQMainToSensor, 3, T_MQ_Command);
+  xQMainToSensorHandle = osMessageCreate(osMessageQ(xQMainToSensor), NULL);
+
+  /* definition and creation of xQSensorToMain */
+/* what about the sizeof here??? cd native code */
+  osMessageQDef(xQSensorToMain, 3, T_MQ_Command);
+  xQSensorToMainHandle = osMessageCreate(osMessageQ(xQSensorToMain), NULL);
+
+  /* definition and creation of xQMainToSTMD */
+/* what about the sizeof here??? cd native code */
+  osMessageQDef(xQMainToSTMD, 3, T_MQ_Command);
+  xQMainToSTMDHandle = osMessageCreate(osMessageQ(xQMainToSTMD), NULL);
+
+  /* definition and creation of xQSTMDToMain */
+/* what about the sizeof here??? cd native code */
+  osMessageQDef(xQSTMDToMain, 3, T_MQ_Command);
+  xQSTMDToMainHandle = osMessageCreate(osMessageQ(xQSTMDToMain), NULL);
+
+  /* definition and creation of xQMainToCOM */
+/* what about the sizeof here??? cd native code */
+  osMessageQDef(xQMainToCOM, 3, T_MQ_Command);
+  xQMainToCOMHandle = osMessageCreate(osMessageQ(xQMainToCOM), NULL);
+
+  /* definition and creation of xQCOMToMain */
+/* what about the sizeof here??? cd native code */
+  osMessageQDef(xQCOMToMain, 3, T_MQ_Command);
+  xQCOMToMainHandle = osMessageCreate(osMessageQ(xQCOMToMain), NULL);
+
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
- 
+
 
   /* Start scheduler */
   osKernelStart();
-  
+
   /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
@@ -448,7 +520,7 @@ void SystemClock_Config(void)
   RCC_ClkInitTypeDef RCC_ClkInitStruct;
   RCC_PeriphCLKInitTypeDef PeriphClkInit;
 
-    /**Initializes the CPU, AHB and APB busses clocks 
+    /**Initializes the CPU, AHB and APB busses clocks
     */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
@@ -462,7 +534,7 @@ void SystemClock_Config(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Initializes the CPU, AHB and APB busses clocks 
+    /**Initializes the CPU, AHB and APB busses clocks
     */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
@@ -484,11 +556,11 @@ void SystemClock_Config(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure the Systick interrupt time 
+    /**Configure the Systick interrupt time
     */
   HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
 
-    /**Configure the Systick 
+    /**Configure the Systick
     */
   HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
 
@@ -502,7 +574,7 @@ static void MX_ADC1_Init(void)
 
   ADC_ChannelConfTypeDef sConfig;
 
-    /**Common config 
+    /**Common config
     */
   hadc1.Instance = ADC1;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
@@ -516,7 +588,7 @@ static void MX_ADC1_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure Regular Channel 
+    /**Configure Regular Channel
     */
   sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_REGULAR_RANK_1;
@@ -528,9 +600,9 @@ static void MX_ADC1_Init(void)
 
 }
 
-/** Configure pins as 
-        * Analog 
-        * Input 
+/** Configure pins as
+        * Analog
+        * Input
         * Output
         * EVENT_OUT
         * EXTI
@@ -593,6 +665,7 @@ typedef enum eSensorSampling{
 }T_Sensor_Sampling_States;
 T_Sensor_Sampling_States xSensorSamplingCurrentState = eSensorSampling_Stopped;
 T_Sensor_Sampling_States xSensorSamplingNewState = eSensorSampling_Stopped;
+T_Sensor_Sampling_States xSensorSamplingState = eSensorSampling_Stopped;
 
 
 typedef enum{
@@ -632,13 +705,15 @@ void FlushRxCmd(void)
 	}
 }
 
-void AnalyseRxCmd(void)
+T_MQ_Command AnalyseRxCmd(void)
 {
 	char * cmd_perform_reduced_scan = "RSCAN %d";
 	char * cmd_perform_complete_scan = "CSCAN";
 	char * cmd_sample_distance_sensor = "DISTCONV";
 	char * cmd_sample_distance_sensor_N = "DISTNCONV %d";
 	char * cmd_stop_sample_distance_sensor = "STOPDISTCONV";
+	T_MQ_Command xRetVal;
+	xRetVal.xMQ_Cmd = eCMD_None;
 
 	int32_t i32Param = 0;
 
@@ -653,20 +728,24 @@ void AnalyseRxCmd(void)
 	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_complete_scan))
 	{
 		/* perform a full resolution scan */
-		xSysModeNext = eSysMode_FullScan;
+		//xSysModeNext = eSysMode_FullScan;
+		xRetVal.xMQ_Cmd = eCMD_FullScanMeasurement;
 	}
 	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_sample_distance_sensor))
 	{
-		/* request to stop reflow process */
-		xMainTxState = eMain_TxContinuous;
-		xSensorSamplingNewState = eSensorSampling_Continuous;
+		/* request to continuously sample the sensor */
+		//xMainTxState = eMain_TxContinuous;
+		//xSensorSamplingNewState = eSensorSampling_Continuous; /* ToDo: change to queue, bzw. als rückgabewert, damit task die queue befüllt */
+		xRetVal.xMQ_Cmd = eCMD_SampleSensor;
+		xRetVal.i32MQ_Cmd_ParamA = -1;
 
 	}
 	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_stop_sample_distance_sensor))
 	{
-		/* request to stop reflow process */
-		xMainTxState = eMain_TxStopped;
-		xSensorSamplingNewState = eSensorSampling_Stopped;
+		/* request to stop continously sampling the sensor */
+		//xMainTxState = eMain_TxStopped;
+		//xSensorSamplingNewState = eSensorSampling_Stopped;
+		xRetVal.xMQ_Cmd = eCMD_Abort;
 
 	}
 	else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_sample_distance_sensor_N, &i32Param))
@@ -674,12 +753,15 @@ void AnalyseRxCmd(void)
 		if(0 < i32Param){
 			if(UINT16_MAX >= i32Param)
 			{
-				i32TxSampleCnt = i32Param;
-				xMainTxState = eMain_TxNSamples;
-				xSensorSamplingNewState = eSensorSampling_Continuous;
+				//i32TxSampleCnt = i32Param;
+				//xMainTxState = eMain_TxNSamples;
+				//xSensorSamplingNewState = eSensorSampling_Continuous;
+				xRetVal.xMQ_Cmd = eCMD_SampleSensor;
+				xRetVal.i32MQ_Cmd_ParamA = i32Param;
 			}
 		}
 	}
+	return xRetVal;
 }
 
 #define DISTSENSE_VOUT_SAMPLING_CNT	1 /* ToDo: anpassen */
@@ -756,6 +838,19 @@ void Print_Sensor_Data(T_LinearBuffer * pxLinBuff)
 		u32Avg /= LINBUFFSIZE;
 
 		u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%i %d\n", xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle, u32Avg);
+
+		CDC_Transmit_FS(&au08DataOutput[0],strlen(au08DataOutput));
+	}
+}
+
+void Print_Sensor_Data_Value(uint32_t u32SensorVal)
+{
+	uint16_t u16StrIdx = 0;
+
+	if(USBD_STATE_CONFIGURED == hUsbDeviceFS.dev_state)
+	{
+
+		u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%i %d\n", xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle, u32SensorVal);
 
 		CDC_Transmit_FS(&au08DataOutput[0],strlen(au08DataOutput));
 	}
@@ -850,16 +945,188 @@ void MainTaskWork(void const * argument)
 	TickType_t xLastWakeTime;
 	const TickType_t xFrequency = 100; // every 100 ms
 
+	BaseType_t xMQRetVal;
+	T_MQ_Command xMqCmd;
+	T_MQ_Command xMqCOMCmd;
+
 	// Initialise the xLastWakeTime variable with the current time.
 	xLastWakeTime = xTaskGetTickCount();
+
+	uint8_t u08SampleSensorRQ = 0;
+
   /* Infinite loop */
 	for(;;)
 	{
 		/* create fixed frequency task calling */
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
+		/* check for incoming COM message */
+		if(0 != xQCOMToMainHandle)
+		{
+			xMQRetVal = xQueueReceive(xQCOMToMainHandle, &xMqCOMCmd,0);
+			if(pdPASS != xMQRetVal)
+			{
+				/* error or no message received */
+				xMqCOMCmd.xMQ_Cmd = eCMD_None;
+			}
+		}
+
+		/* check state */
+		if(eSysMode_StartUp == xSysMode)
+		{
+			/* perform homing */
+		}
+		else if(eSysMode_FullScan == xSysMode)
+		{
+			static uint32_t u32InitialMeasurementStarted = 0;
+			static T_STMD_StepDirection xCurrStepDir = eSTMD_CW;
+			/* first check if an abort request was received */
+			if(eCMD_Abort == xMqCOMCmd.xMQ_Cmd)
+			{
+				xSysMode = eSysMode_Idle;
+			}
+			else
+			{
+				/* prerequisite: homing done */
+				if(0 == u32InitialMeasurementStarted)
+				{
+					/* start first measurement */
+					/* request sampling */
+					if(0 != xQMainToSensorHandle)
+					{
+						xMqCmd.xMQ_Cmd = eCMD_SampleSensor;
+						xMQRetVal = xQueueSendToBack(xQMainToSensorHandle, &xMqCmd, 0);
+						if(pdPASS == xMQRetVal)
+						{
+							/* sensor sampling request successful */
+							u32InitialMeasurementStarted = 1;
+						}
+					}
+				}
+				else
+				{
+					/* check if measurement was done */
+					if(0 != xQSensorToMainHandle)
+					{
+						xMQRetVal = xQueueReceive(xQSensorToMainHandle, &xMqCmd, 0);
+						if(pdPASS == xMQRetVal)
+						{
+							/* evaluate message */
+							if(eCMD_SensorValue == xMqCmd.xMQ_Cmd)
+							{
+								/* print sensor value */
+								Print_Sensor_Data_Value((uint32_t)xMqCmd.i32MQ_Cmd_ParamA);
+								/* perform next step */
+								if(eSTMD_Ok == xSTMD_PerformStep(xCurrStepDir, eSTMD_Medium))
+								{
+									/* request next measurement */
+									xMqCmd.xMQ_Cmd = eCMD_SampleSensor;
+									xMQRetVal = xQueueSendToBack(xQMainToSensorHandle, &xMqCmd, 0);
+									if(pdPASS != xMQRetVal)
+									{
+										/* sensor sampling request failed */
+										xSysMode = eSysMode_Idle;	//TODO: appropriate error handling
+									}
+								}
+								else
+								{
+									/* scan finished */
+									u32InitialMeasurementStarted = 0;
+									/* change scan direction for next scan */
+									switch(xCurrStepDir)
+									{
+										case eSTMD_CW:
+											xCurrStepDir = eSTMD_CCW;
+											break;
+										case eSTMD_CCW:
+											xCurrStepDir = eSTMD_CW;
+											break;
+									}
+									/* switch mode */
+									xSysMode = eSysMode_Idle;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		else if(eSysMode_StaticScan == xSysMode)
+		{
+			if(0 == u08SampleSensorRQ)
+			{
+				/* request sampling */
+				if(0 != xQMainToSensorHandle)
+				{
+					xMqCmd.xMQ_Cmd = eCMD_SampleSensor;
+					xMQRetVal = xQueueSendToBack(xQMainToSensorHandle, &xMqCmd, 0);
+					if(pdPASS == xMQRetVal)
+					{
+						/* sensor sampling request successful */
+						u08SampleSensorRQ = 1;
+					}
+				}
+			}
+			else
+			{
+				/* check response */
+				if(0 != xQSensorToMainHandle)
+				{
+					/* message available ? */
+					xMQRetVal = xQueueReceive(xQSensorToMainHandle, &xMqCmd, 0);
+					if(pdPASS == xMQRetVal)
+					{
+						/* evaluate message */
+						if(eCMD_SensorValue == xMqCmd.xMQ_Cmd)
+						{
+							/* print sensor value */
+							Print_Sensor_Data_Value((uint32_t)xMqCmd.i32MQ_Cmd_ParamA);
+							/* done successfully */
+							xSysMode = eSysMode_Idle;
+						}
+					}
+				}
+			}
+		}
+		else if(eSysMode_Idle == xSysMode)
+		{
+			/* evaluate incoming com message */
+			switch (xMqCOMCmd.xMQ_Cmd) {
+				case eCMD_FullScanMeasurement:
+					xSysMode = eSysMode_FullScan;
+					break;
+				case eCMD_SampleSensor:
+					u08SampleSensorRQ = 0;
+					xSysMode = eSysMode_StaticScan;
+					break;
+				case eCMD_StaticMeasurement:
+
+					break;
+				default:
+					break;
+			}
+		}
+
+
+
+
+		/* check incoming message queues */
+		/* -> from sensor task */
+
+
+
+		/* -> from stepper motor driver task */
+		if(0 != xQSTMDToMainHandle)
+		{
+
+		}
+
 		/* perform task depending on mode */
-		if(eSysMode_Tx == xSysModeNow)
+		if(1)
+		{
+
+		}
+		else if(eSysMode_Tx == xSysModeNow)
 		{
 			/* decide if sensor data shall be transmitted via USB */
 			if(eMain_TxContinuous == xMainTxState)
@@ -962,7 +1229,7 @@ void MainTaskWork(void const * argument)
 		}
 
 	}
-  /* USER CODE END 5 */ 
+  /* USER CODE END 5 */
 }
 
 /* COMTaskWork function */
@@ -975,6 +1242,8 @@ void COMTaskWork(void const * argument)
 	volatile uint32_t u32Length;
 	volatile int8_t i08USBCDCErrCode;
 
+	T_MQ_Command xMqCmd;
+
 	/* Infinite loop */
 	for(;;)
 	{
@@ -984,9 +1253,7 @@ void COMTaskWork(void const * argument)
 		{
 			au08RxBuffer[u08Idx] = 0;
 		}
-		/* check for incoming bytes on UART */
-		//xRetVal = HAL_UART_Receive(&huart2,(uint8_t *)&au08RxBuffer[0],sizeof(au08RxBuffer),2);
-		//if((HAL_OK == xRetVal) || (HAL_TIMEOUT == xRetVal))
+		/* check for incoming bytes on USB */
 		if(USBD_STATE_CONFIGURED == hUsbDeviceFS.dev_state)
 		{
 			//i08USBCDCErrCode = CDC_Receive_FS(&au08RxBuffer[0], &u32Length);
@@ -1041,8 +1308,19 @@ void COMTaskWork(void const * argument)
 
 		if(1 == xUartRxCmd.u08CommandReceived)
 		{
-			AnalyseRxCmd();
+			xMqCmd = AnalyseRxCmd();
 			FlushRxCmd();
+
+			/* check if a valid command was received */
+			if(eCMD_None != xMqCmd.xMQ_Cmd)
+			{
+				/* inform main task about new command */
+				if(0 != xQCOMToMainHandle)
+				{
+					xQueueSendToBack(xQCOMToMainHandle,&xMqCmd,0);
+				}
+			}
+
 		}
 	}
   /* USER CODE END COMTaskWork */
@@ -1057,6 +1335,11 @@ void SampleSensorsWork(void const * argument)
 	uint8_t u08RetVal;
 
 	volatile uint32_t u32ADCVal;
+	volatile uint32_t u32DistSensorVal;
+	volatile uint8_t u08MeasurementCnt;
+
+	BaseType_t xQueueRetVal;
+	T_MQ_Command xMainTaskCmd;
 
 	// Initialise the xLastWakeTime variable with the current time.
 	xLastWakeTime = xTaskGetTickCount();
@@ -1067,7 +1350,74 @@ void SampleSensorsWork(void const * argument)
 		/* create fixed frequency task calling */
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
-		if(eSensorSampling_Continuous == xSensorSamplingCurrentState)
+		/* check for an incoming message */
+		/* verify that queue exists */
+		if(0 != xQMainToSensorHandle)
+		{
+			xQueueRetVal = xQueueReceive(xQMainToSensorHandle, &xMainTaskCmd, 0);
+			if(pdTRUE == xQueueRetVal)
+			{
+				/* evaluate the command from the main task */
+				if(eCMD_SampleSensor == xMainTaskCmd.xMQ_Cmd)
+				{
+					/* delete average and start sampling */
+					u32DistSensorVal = 0;
+					u08MeasurementCnt = DIST_SENSOR_SAMPLING_CNT;
+					xSensorSamplingState = eSensorSampling_OneShot;
+				}
+				else if(eCMD_Abort == xMainTaskCmd.xMQ_Cmd)
+				{
+					/* stop ongoing measurement */
+					xSensorSamplingCurrentState = eSensorSampling_Stopped;
+					xSensorSamplingNewState = eSensorSampling_Stopped;
+					/* confirm to the main task */
+					if(0 != xQSensorToMainHandle)
+					{
+						xMainTaskCmd.xMQ_Cmd = eCMD_Accepted;
+						xQueueRetVal = xQueueSendToBack(xQSensorToMainHandle,&xMainTaskCmd,0);
+					}
+				}
+			}
+		}
+
+		/* work */
+		if(eSensorSampling_OneShot == xSensorSamplingState)
+		{
+			LED_Work(eLED_Running);
+
+			if(0 != u08MeasurementCnt)
+			{
+				/* sample distance sensor and sum up result */
+				u32DistSensorVal += Distance_ConvertSensorOutput();
+				u08MeasurementCnt--;
+			}
+			else
+			{
+				/* finished sampling */
+				/* calculate average */
+				u32DistSensorVal /= DIST_SENSOR_SAMPLING_CNT;
+				/* prepare message to Main task */
+				xMainTaskCmd.xMQ_Cmd = eCMD_SensorValue;
+				xMainTaskCmd.i32MQ_Cmd_ParamA = (int32_t)u32DistSensorVal;
+				/* send via queue */
+				if(0 != xQSensorToMainHandle)
+				{
+					xQueueSendToBack(xQSensorToMainHandle,&xMainTaskCmd,0);
+				}
+				/* stop sampling */
+				xSensorSamplingState = eSensorSampling_Stopped;
+			}
+		}
+		else
+		{
+			LED_Work(eLED_Idle);
+		}
+
+		if(1)
+		{
+
+		}
+		else if(eSensorSampling_Continuous == xSensorSamplingCurrentState)
 		{
 			LED_Work(eLED_Running);
 			/* sample distance sensor */
@@ -1134,6 +1484,18 @@ void SampleSensorsWork(void const * argument)
   /* USER CODE END SampleSensorsWork */
 }
 
+/* SMTDWork function */
+void SMTDWork(void const * argument)
+{
+  /* USER CODE BEGIN SMTDWork */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1000);
+  }
+  /* USER CODE END SMTDWork */
+}
+
 /**
   * @brief  Period elapsed callback in non blocking mode
   * @note   This function is called  when TIM1 interrupt took place, inside
@@ -1180,7 +1542,7 @@ void _Error_Handler(char *file, int line)
   * @retval None
   */
 void assert_failed(uint8_t* file, uint32_t line)
-{ 
+{
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
      tex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */

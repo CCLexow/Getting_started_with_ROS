@@ -1,6 +1,6 @@
 # MCAD Files
 
-![](MCAD/Images/SharpDistanceSensorAssembly.png)
+![](Images/SharpDistanceSensorAssembly.png)
 
 Designed with [FreeCAD](https://www.freecadweb.org)
 # Credits

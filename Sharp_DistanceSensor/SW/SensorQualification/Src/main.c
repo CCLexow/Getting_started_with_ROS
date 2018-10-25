@@ -54,6 +54,7 @@
 
 /* USER CODE BEGIN Includes */
 #include "usbd_cdc_if.h"
+//#include "STMDriver.h"
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -135,6 +136,201 @@ void Init_Linear_Buffers(void)
 	pxLinearBufferReadyForTx = 0;
 }
 
+typedef enum eSystemMode
+{
+	eSysMode_Idle = 0,
+	eSysMode_Tx,
+	eSysMode_FullScan,
+	eSysMode_PartialScan
+}T_System_Mode;
+
+T_System_Mode xSysModeNow;
+T_System_Mode xSysModeNext;
+
+
+#define STMD_ROTATION_INC_COARSE	   9000L
+#define STMD_ROTATION_INC_MEDIUM	   4500L
+#define STMD_ROTATION_INC_FINE		   1125L
+#define STMD_ROTATION_360DEG		3600000L
+
+typedef enum eSTMD_RetVals
+{
+	eSTMD_Err = 0,
+	eSTMD_Ok
+}T_STMD_RetVals;
+
+typedef struct strSTMD_PinConfig
+{
+	GPIO_TypeDef *xSTMD_GPIO_Port_Pin_Enable;
+	GPIO_TypeDef *xSTMD_GPIO_Port_Pin_Cfg1;
+	GPIO_TypeDef * xSTMD_GPIO_Port_Pin_Step;
+	GPIO_TypeDef *xSTMD_GPIO_Port_Pin_Dir;
+	uint16_t u16STMD_GPIO_Pin_Enable;
+	uint16_t u16STMD_GPIO_Pin_Cfg1;
+	uint16_t u16STMD_GPIO_Pin_Step;
+	uint16_t u16STMD_GPIO_Pin_Dir;
+}T_STMD_PinConfig;
+
+typedef struct strSTMD_Rotation
+{
+	int32_t i32STMD_CurrentAngle;
+	int32_t i32STMD_MaxAngle;
+	int32_t i32STMD_AngleIncrement;
+}T_STMD_Rotation;
+
+typedef struct strSTMD_Config
+{
+	T_STMD_PinConfig xSTMD_PinConfig;
+	T_STMD_Rotation xSTMD_Rotation;
+}T_STMD_Config;
+
+typedef enum eSTMD_StepResolution
+{
+	eSTMD_Coarse = 0,
+	eSTMD_Medium,
+	eSMTD_Fine
+}T_STMD_StepResolution;
+
+typedef enum eSTMD_StepDirection
+{
+	eSTMD_CW = 0,
+	eSTMD_CCW
+}T_STMD_StepDirection;
+
+T_STMD_RetVals xSTMD_SetConfig(T_STMD_Config * pxSTMD_Config);
+
+T_STMD_RetVals xSTMD_PerformHomingCycle(void);
+
+T_STMD_RetVals xSTMD_PerformStep(T_STMD_StepDirection xStepDir, T_STMD_StepResolution xStepRes);
+
+
+T_STMD_Config xSTMD_Config;
+
+void enableDriver(void)
+{
+	/* for readability */
+	T_STMD_PinConfig * pxPinCfg = &xSTMD_Config.xSTMD_PinConfig;
+
+	HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Enable,pxPinCfg->u16STMD_GPIO_Pin_Enable, GPIO_PIN_RESET);
+}
+
+void setStepResolution(T_STMD_StepResolution xStepRes)
+{
+	/* for readability */
+	T_STMD_PinConfig * pxPinCfg = &xSTMD_Config.xSTMD_PinConfig;
+
+	if(eSMTD_Fine == xStepRes)
+	{
+		HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Cfg1,pxPinCfg->u16STMD_GPIO_Pin_Cfg1,GPIO_PIN_RESET);
+	}
+	else if((eSTMD_Medium == xStepRes) || eSTMD_Coarse == xStepRes)
+	{
+		HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Cfg1,pxPinCfg->u16STMD_GPIO_Pin_Cfg1,GPIO_PIN_SET);
+	}
+}
+
+
+T_STMD_RetVals xSTMD_SetConfig(T_STMD_Config * pxSTMD_Config)
+{
+	/* assign configuration */
+	/* pin configuration */
+	xSTMD_Config.xSTMD_PinConfig = pxSTMD_Config->xSTMD_PinConfig;
+	/* rotation */
+	/* verify settings */
+	if((STMD_ROTATION_INC_FINE == pxSTMD_Config->xSTMD_Rotation.i32STMD_AngleIncrement) ||
+			(STMD_ROTATION_INC_MEDIUM == pxSTMD_Config->xSTMD_Rotation.i32STMD_AngleIncrement) ||
+			(STMD_ROTATION_INC_MEDIUM == pxSTMD_Config->xSTMD_Rotation.i32STMD_AngleIncrement))
+	{
+		xSTMD_Config.xSTMD_Rotation.i32STMD_AngleIncrement = pxSTMD_Config->xSTMD_Rotation.i32STMD_AngleIncrement;
+	}
+	else
+	{
+		return eSTMD_Err;
+	}
+	if((0 < pxSTMD_Config->xSTMD_Rotation.i32STMD_MaxAngle) &&
+			(STMD_ROTATION_360DEG >= pxSTMD_Config->xSTMD_Rotation.i32STMD_MaxAngle))
+	{
+		xSTMD_Config.xSTMD_Rotation.i32STMD_MaxAngle = pxSTMD_Config->xSTMD_Rotation.i32STMD_MaxAngle;
+	}
+	else
+	{
+		return eSTMD_Err;
+	}
+	xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle = 0;
+
+	enableDriver();
+
+	/* return success */
+	return eSTMD_Ok;
+}
+
+T_STMD_RetVals xSTMD_PerformHomingCycle(void)
+{
+	/* perform homing cycle*/
+
+	xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle = 0;
+	/* return success */
+	return eSTMD_Ok;
+}
+
+T_STMD_RetVals xSTMD_PerformStep(T_STMD_StepDirection xStepDir, T_STMD_StepResolution xStepRes)
+{
+	/* for readability */
+	T_STMD_Rotation * pxRotation = &xSTMD_Config.xSTMD_Rotation;
+	T_STMD_PinConfig * pxPinCfg = &xSTMD_Config.xSTMD_PinConfig;
+
+
+	/* set resolution */
+	setStepResolution(xStepRes);
+
+	/* check in which direction to turn */
+	if(eSTMD_CW == xStepDir)
+	{
+		/* check if max angle is reached */
+		if(pxRotation->i32STMD_MaxAngle >= (pxRotation->i32STMD_CurrentAngle + pxRotation->i32STMD_AngleIncrement))
+		{
+			/* set direction */
+			HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Dir, pxPinCfg->u16STMD_GPIO_Pin_Dir, GPIO_PIN_RESET);
+			/* step */
+			HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Step, pxPinCfg->u16STMD_GPIO_Pin_Step, GPIO_PIN_SET);
+			osDelay(1);
+			HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Step, pxPinCfg->u16STMD_GPIO_Pin_Step, GPIO_PIN_RESET);
+			/* sum up */
+			pxRotation->i32STMD_CurrentAngle += pxRotation->i32STMD_AngleIncrement;
+		}
+		else
+		{
+			return eSTMD_Err;
+		}
+	}
+	else if(eSTMD_CCW == xStepDir)
+	{
+		/* check if max angle is reached */
+		if(0 <= (pxRotation->i32STMD_CurrentAngle - pxRotation->i32STMD_AngleIncrement))
+		{
+			/* set direction */
+			HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Dir, pxPinCfg->u16STMD_GPIO_Pin_Dir, GPIO_PIN_SET);
+			/* step */
+			HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Step, pxPinCfg->u16STMD_GPIO_Pin_Step, GPIO_PIN_SET);
+			osDelay(1);
+			HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Step, pxPinCfg->u16STMD_GPIO_Pin_Step, GPIO_PIN_RESET);
+			/* sum up */
+			pxRotation->i32STMD_CurrentAngle -= pxRotation->i32STMD_AngleIncrement;
+		}
+		else
+		{
+			return eSTMD_Err;
+		}
+	}
+	else
+	{
+		/* TODO: [STMD] Error handling: undefined step direction */
+	}
+
+	/* return success */
+	return eSTMD_Ok;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -146,6 +342,7 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
 	Init_Linear_Buffers();
+
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -168,7 +365,23 @@ int main(void)
   MX_GPIO_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-
+  /* set system mode */
+  xSysModeNow = eSysMode_Idle;
+  xSysModeNext = eSysMode_Idle;
+  /* configure stepper motor driver module */
+  T_STMD_Config xConfig;
+  xConfig.xSTMD_PinConfig.xSTMD_GPIO_Port_Pin_Enable = STMD_En_GPIO_Port;
+  xConfig.xSTMD_PinConfig.u16STMD_GPIO_Pin_Enable = STMD_En_Pin;
+  xConfig.xSTMD_PinConfig.xSTMD_GPIO_Port_Pin_Cfg1 = STMD_Cfg1_GPIO_Port;
+  xConfig.xSTMD_PinConfig.u16STMD_GPIO_Pin_Cfg1 = STMD_Cfg1_Pin;
+  xConfig.xSTMD_PinConfig.xSTMD_GPIO_Port_Pin_Dir = STMD_Dir_GPIO_Port;
+  xConfig.xSTMD_PinConfig.u16STMD_GPIO_Pin_Dir = STMD_Dir_Pin;
+  xConfig.xSTMD_PinConfig.xSTMD_GPIO_Port_Pin_Step = STMD_Step_GPIO_Port;
+  xConfig.xSTMD_PinConfig.u16STMD_GPIO_Pin_Step = STMD_Step_Pin;
+  xConfig.xSTMD_Rotation.i32STMD_AngleIncrement = STMD_ROTATION_INC_MEDIUM;
+  xConfig.xSTMD_Rotation.i32STMD_CurrentAngle = 0;
+  xConfig.xSTMD_Rotation.i32STMD_MaxAngle = STMD_ROTATION_360DEG;
+  xSTMD_SetConfig(&xConfig);
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -336,12 +549,32 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(SYS_LED_GPIO_Port, SYS_LED_Pin, GPIO_PIN_SET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, STMD_Dir_Pin|STMD_Step_Pin|STMD_Cfg1_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(STMD_En_GPIO_Port, STMD_En_Pin, GPIO_PIN_SET);
+
   /*Configure GPIO pin : SYS_LED_Pin */
   GPIO_InitStruct.Pin = SYS_LED_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(SYS_LED_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : STMD_Dir_Pin STMD_Step_Pin STMD_Cfg1_Pin */
+  GPIO_InitStruct.Pin = STMD_Dir_Pin|STMD_Step_Pin|STMD_Cfg1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : STMD_En_Pin */
+  GPIO_InitStruct.Pin = STMD_En_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(STMD_En_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : IN_LightBarrier_Pin */
   GPIO_InitStruct.Pin = IN_LightBarrier_Pin;
@@ -355,7 +588,8 @@ static void MX_GPIO_Init(void)
 
 typedef enum eSensorSampling{
 	eSensorSampling_Stopped = 0,
-	eSensorSampling_Running
+	eSensorSampling_Continuous,
+	eSensorSampling_OneShot
 }T_Sensor_Sampling_States;
 T_Sensor_Sampling_States xSensorSamplingCurrentState = eSensorSampling_Stopped;
 T_Sensor_Sampling_States xSensorSamplingNewState = eSensorSampling_Stopped;
@@ -419,13 +653,13 @@ void AnalyseRxCmd(void)
 	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_complete_scan))
 	{
 		/* perform a full resolution scan */
-
+		xSysModeNext = eSysMode_FullScan;
 	}
 	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_sample_distance_sensor))
 	{
 		/* request to stop reflow process */
 		xMainTxState = eMain_TxContinuous;
-		xSensorSamplingNewState = eSensorSampling_Running;
+		xSensorSamplingNewState = eSensorSampling_Continuous;
 
 	}
 	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_stop_sample_distance_sensor))
@@ -442,13 +676,13 @@ void AnalyseRxCmd(void)
 			{
 				i32TxSampleCnt = i32Param;
 				xMainTxState = eMain_TxNSamples;
-				xSensorSamplingNewState = eSensorSampling_Running;
+				xSensorSamplingNewState = eSensorSampling_Continuous;
 			}
 		}
 	}
 }
 
-#define DISTSENSE_VOUT_SAMPLING_CNT	8
+#define DISTSENSE_VOUT_SAMPLING_CNT	1 /* ToDo: anpassen */
 uint32_t Distance_ConvertSensorOutput(void)
 {
 	uint8_t u08SampleCount = DISTSENSE_VOUT_SAMPLING_CNT;
@@ -481,7 +715,7 @@ uint32_t Distance_ConvertSensorOutput(void)
 
 uint8_t au08DataOutput[1500];
 //void Print_Sensor_Data(uint32_t u32Data)
-void Print_Sensor_Data(T_LinearBuffer * pxLinBuff)
+void Print_Complete_Sensor_Data(T_LinearBuffer * pxLinBuff)
 {
 	static uint16_t su16MsgCnt = 0;
 	volatile float fltADCVoltage;
@@ -498,7 +732,7 @@ void Print_Sensor_Data(T_LinearBuffer * pxLinBuff)
 			fltADCVoltage /= 4096;
 			fltADCVoltage *= 100;
 			u16ADCVoltage = (uint16_t)fltADCVoltage;
-			u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%d %d %d\n", su16MsgCnt, pxLinBuff->au32Buffer[u16Idx],u16ADCVoltage);
+			u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%d %d %d %i\n", su16MsgCnt, pxLinBuff->au32Buffer[u16Idx],u16ADCVoltage, xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle);
 		}
 
 
@@ -507,6 +741,103 @@ void Print_Sensor_Data(T_LinearBuffer * pxLinBuff)
 	}
 }
 
+void Print_Sensor_Data(T_LinearBuffer * pxLinBuff)
+{
+	uint32_t u32Avg = 0;
+	uint16_t u16StrIdx = 0;
+
+	if(USBD_STATE_CONFIGURED == hUsbDeviceFS.dev_state)
+	{
+		/* calculate average */
+		for(uint16_t u16Idx=0; u16Idx < LINBUFFSIZE; u16Idx++)
+		{
+			u32Avg += pxLinBuff->au32Buffer[u16Idx];
+		}
+		u32Avg /= LINBUFFSIZE;
+
+		u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%i %d\n", xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle, u32Avg);
+
+		CDC_Transmit_FS(&au08DataOutput[0],strlen(au08DataOutput));
+	}
+}
+
+
+typedef enum eLEDPattern
+{
+	eLED_Idle = 0,
+	eLED_Running
+}T_LED_Pattern;
+#define LED_IDLE_ON		480
+#define LED_IDLE_OFF	20
+#define LED_RUNNING		100
+
+inline void LED_Work(T_LED_Pattern xLEDPattern)
+{
+	static uint16_t su16LEDCnt = LED_IDLE_OFF;
+	static T_LED_Pattern xLEDPatternLast = eLED_Idle;
+	static GPIO_PinState sxLEDPinState = GPIO_PIN_RESET;
+
+	/* check which led pattern was chosen */
+	if(eLED_Running == xLEDPattern)
+	{
+		/* new state ? */
+		if(xLEDPattern != xLEDPatternLast)
+		{
+			su16LEDCnt = LED_RUNNING;
+			sxLEDPinState = GPIO_PIN_SET;
+			/* take over state */
+			xLEDPatternLast = xLEDPattern;
+		}
+		else
+		{
+			su16LEDCnt--;
+			if(0 == su16LEDCnt)
+			{
+				if(GPIO_PIN_RESET == sxLEDPinState)
+				{
+					su16LEDCnt = LED_RUNNING;
+					sxLEDPinState = GPIO_PIN_SET;
+				}
+				else
+				{
+					su16LEDCnt = LED_RUNNING;
+					sxLEDPinState = GPIO_PIN_RESET;
+				}
+			}
+		}
+	}
+	else if(eLED_Idle == xLEDPattern)
+	{
+		/* new state ? */
+		if(xLEDPattern != xLEDPatternLast)
+		{
+			su16LEDCnt = LED_IDLE_ON;
+			sxLEDPinState = GPIO_PIN_SET;
+			/* take over state */
+			xLEDPatternLast = xLEDPattern;
+		}
+		else
+		{
+			su16LEDCnt--;
+			if(0 == su16LEDCnt)
+			{
+				if(GPIO_PIN_RESET == sxLEDPinState)
+				{
+					su16LEDCnt = LED_IDLE_ON;
+					sxLEDPinState = GPIO_PIN_SET;
+				}
+				else
+				{
+					su16LEDCnt = LED_IDLE_OFF;
+					sxLEDPinState = GPIO_PIN_RESET;
+				}
+			}
+		}
+	}
+
+	/* write to led pin */
+	HAL_GPIO_WritePin(SYS_LED_GPIO_Port,SYS_LED_Pin,sxLEDPinState);
+}
 /* USER CODE END 4 */
 
 /* MainTaskWork function */
@@ -527,61 +858,109 @@ void MainTaskWork(void const * argument)
 		/* create fixed frequency task calling */
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
-		/* decide if sensor data shall be transmitted via USB */
-		if(eMain_TxContinuous == xMainTxState)
+		/* perform task depending on mode */
+		if(eSysMode_Tx == xSysModeNow)
 		{
-			if(0 != pxLinearBufferReadyForTx)
-			{
-				/* transmit buffer content */
-				Print_Sensor_Data(pxLinearBufferReadyForTx);
-				/* flush buffer */
-				LinearBufferFlush(pxLinearBufferReadyForTx);
-				/* mark buffer as transmitted */
-				pxLinearBufferReadyForTx = 0;
-			}
-		}
-		else if(eMain_TxNSamples == xMainTxState)
-		{
-			if(0 < i32TxSampleCnt)
+			/* decide if sensor data shall be transmitted via USB */
+			if(eMain_TxContinuous == xMainTxState)
 			{
 				if(0 != pxLinearBufferReadyForTx)
 				{
-					/* count sample */
-					i32TxSampleCnt--;
 					/* transmit buffer content */
-					Print_Sensor_Data(pxLinearBufferReadyForTx);
+					Print_Complete_Sensor_Data(pxLinearBufferReadyForTx);
 					/* flush buffer */
 					LinearBufferFlush(pxLinearBufferReadyForTx);
 					/* mark buffer as transmitted */
 					pxLinearBufferReadyForTx = 0;
 				}
 			}
+			else if(eMain_TxNSamples == xMainTxState)
+			{
+				if(0 < i32TxSampleCnt)
+				{
+					if(0 != pxLinearBufferReadyForTx)
+					{
+						/* count sample */
+						i32TxSampleCnt--;
+						/* transmit buffer content */
+						Print_Complete_Sensor_Data(pxLinearBufferReadyForTx);
+						/* flush buffer */
+						LinearBufferFlush(pxLinearBufferReadyForTx);
+						/* mark buffer as transmitted */
+						pxLinearBufferReadyForTx = 0;
+					}
+				}
+				else
+				{
+					xMainTxState = eMain_TxStopped;
+					xSensorSamplingNewState = eSensorSampling_Stopped;
+				}
+			}
+			/* take over next mode */
+			xSysModeNow = xSysModeNext;
+		}
+		else if (eSysMode_FullScan == xSysModeNow)
+		{
+			static uint32_t u32HomingDone = 0;
+			static uint32_t u32InitialMeasurementStarted = 0;
+			T_STMD_RetVals xRetVal;
+			static T_STMD_StepDirection xCurrStepDir = eSTMD_CW;
+			if(0 == u32HomingDone)
+			{
+				/* perform homing cycle */
+				xRetVal = xSTMD_PerformHomingCycle();
+				u32HomingDone = 1;
+			}
+			if(0 == u32InitialMeasurementStarted)
+			{
+				/* start measurement */
+				xSensorSamplingNewState = eSensorSampling_OneShot;
+				u32InitialMeasurementStarted = 1;
+			}
 			else
 			{
-				xMainTxState = eMain_TxStopped;
-				xSensorSamplingNewState = eSensorSampling_Stopped;
+				/* tx measurement if buffer is full*/
+				if(0 != pxLinearBufferReadyForTx)
+				{
+					/* transmit buffer content */
+					Print_Sensor_Data(pxLinearBufferReadyForTx);
+					/* flush buffer */
+					LinearBufferFlush(pxLinearBufferReadyForTx);
+					/* mark buffer as transmitted */
+					pxLinearBufferReadyForTx = 0;
+					/* perform step */
+					if(eSTMD_Ok == xSTMD_PerformStep(xCurrStepDir, eSTMD_Medium))
+					{
+						/* start next measurement */
+						xSensorSamplingNewState = eSensorSampling_OneShot;
+						u32InitialMeasurementStarted = 1;
+					}
+					else
+					{
+						/* full scan is done => stop */
+						xSysModeNext = eSysMode_Idle;
+						u32InitialMeasurementStarted = 0;
+						/* switch direction for next scan */
+						if(eSTMD_CW == xCurrStepDir)
+						{
+							xCurrStepDir = eSTMD_CCW;
+						}
+						else if(eSTMD_CCW == xCurrStepDir)
+						{
+							xCurrStepDir = eSTMD_CW;
+						}
+					}
+				}
 			}
+			/* take over next mode */
+			xSysModeNow = xSysModeNext;
 		}
-/*
-		u32ADCVal = Distance_ConvertSensorOutput();
+		else if(eSysMode_Idle == xSysModeNow)
+		{
+			/* take over next mode */
+			xSysModeNow = xSysModeNext;
+		}
 
-		if(eMain_TxContinuous == xMainTxState)
-		{
-			Print_Sensor_Data(u32ADCVal);
-		}
-		else if(eMain_TxNSamples == xMainTxState)
-		{
-			if(0 < u16TxSampleCnt)
-			{
-				u16TxSampleCnt--;
-				Print_Sensor_Data(u32ADCVal);
-			}
-			else
-			{
-				xMainTxState = eMain_TxStopped;
-			}
-		}
-*/
 	}
   /* USER CODE END 5 */ 
 }
@@ -658,7 +1037,7 @@ void COMTaskWork(void const * argument)
 			}*/
 		}
 
-		//TODO: es muss noch der USB buffer geflusht werden
+		//TODO: [main] es muss noch der USB buffer geflusht werden
 
 		if(1 == xUartRxCmd.u08CommandReceived)
 		{
@@ -668,89 +1047,13 @@ void COMTaskWork(void const * argument)
 	}
   /* USER CODE END COMTaskWork */
 }
-typedef enum eLEDPattern
-{
-	eLED_Idle = 0,
-	eLED_Running
-}T_LED_Pattern;
-#define LED_IDLE_ON		480
-#define LED_IDLE_OFF	20
-#define LED_RUNNING		100
 
-inline void LED_Work(T_LED_Pattern xLEDPattern)
-{
-	static uint16_t su16LEDCnt = LED_IDLE_OFF;
-	static T_LED_Pattern xLEDPatternLast = eLED_Idle;
-	static GPIO_PinState sxLEDPinState = GPIO_PIN_RESET;
-
-	/* check which led pattern was chosen */
-	if(eLED_Running == xLEDPattern)
-	{
-		/* new state ? */
-		if(xLEDPattern != xLEDPatternLast)
-		{
-			su16LEDCnt = LED_RUNNING;
-			sxLEDPinState = GPIO_PIN_SET;
-			/* take over state */
-			xLEDPatternLast = xLEDPattern;
-		}
-		else
-		{
-			su16LEDCnt--;
-			if(0 == su16LEDCnt)
-			{
-				if(GPIO_PIN_RESET == sxLEDPinState)
-				{
-					su16LEDCnt = LED_RUNNING;
-					sxLEDPinState = GPIO_PIN_SET;
-				}
-				else
-				{
-					su16LEDCnt = LED_RUNNING;
-					sxLEDPinState = GPIO_PIN_RESET;
-				}
-			}
-		}
-	}
-	else if(eLED_Idle == xLEDPattern)
-	{
-		/* new state ? */
-		if(xLEDPattern != xLEDPatternLast)
-		{
-			su16LEDCnt = LED_IDLE_ON;
-			sxLEDPinState = GPIO_PIN_SET;
-			/* take over state */
-			xLEDPatternLast = xLEDPattern;
-		}
-		else
-		{
-			su16LEDCnt--;
-			if(0 == su16LEDCnt)
-			{
-				if(GPIO_PIN_RESET == sxLEDPinState)
-				{
-					su16LEDCnt = LED_IDLE_ON;
-					sxLEDPinState = GPIO_PIN_SET;
-				}
-				else
-				{
-					su16LEDCnt = LED_IDLE_OFF;
-					sxLEDPinState = GPIO_PIN_RESET;
-				}
-			}
-		}
-	}
-
-	/* write to led pin */
-	HAL_GPIO_WritePin(SYS_LED_GPIO_Port,SYS_LED_Pin,sxLEDPinState);
-
-}
 /* SampleSensorsWork function */
 void SampleSensorsWork(void const * argument)
 {
   /* USER CODE BEGIN SampleSensorsWork */
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 1; // every 100 ms
+	const TickType_t xFrequency = 1; // every 1 ms
 	uint8_t u08RetVal;
 
 	volatile uint32_t u32ADCVal;
@@ -764,7 +1067,7 @@ void SampleSensorsWork(void const * argument)
 		/* create fixed frequency task calling */
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
-		if(eSensorSampling_Running == xSensorSamplingCurrentState)
+		if(eSensorSampling_Continuous == xSensorSamplingCurrentState)
 		{
 			LED_Work(eLED_Running);
 			/* sample distance sensor */
@@ -790,11 +1093,36 @@ void SampleSensorsWork(void const * argument)
 				xSensorSamplingCurrentState = xSensorSamplingNewState;
 			}
 		}
+		else if(eSensorSampling_OneShot == xSensorSamplingCurrentState)
+		{
+			LED_Work(eLED_Running);
+			/* sample distance sensor */
+			u32ADCVal = Distance_ConvertSensorOutput();
+			/* put value onto buffer */
+			u08RetVal = u08LinearBufferPush(pxLinearBufferActive, u32ADCVal);
+			/* check if buffer is full */
+			if(0 == u08RetVal)
+			{
+				/* buffer is full */
+				/* mark this buffer as ready for tx */
+				pxLinearBufferReadyForTx = pxLinearBufferActive;
+				/* take over new state */
+				xSensorSamplingNewState = eSensorSampling_Stopped;
+				xSensorSamplingCurrentState = xSensorSamplingNewState;
+			}
+		}
 		else if(eSensorSampling_Stopped == xSensorSamplingCurrentState)
 		{
 			LED_Work(eLED_Idle);
 			/* check if sensor sampling shall be enabled */
-			if(eSensorSampling_Running == xSensorSamplingNewState)
+			if(eSensorSampling_Continuous == xSensorSamplingNewState)
+			{
+				/* init buffers and pointers */
+				Init_Linear_Buffers();
+				/* and take over new state */
+				xSensorSamplingCurrentState = xSensorSamplingNewState;
+			}
+			else if(eSensorSampling_OneShot == xSensorSamplingNewState)
 			{
 				/* init buffers and pointers */
 				Init_Linear_Buffers();

@@ -63,6 +63,14 @@
 #define SYS_LED_GPIO_Port GPIOC
 #define AN_Distance_Pin GPIO_PIN_0
 #define AN_Distance_GPIO_Port GPIOA
+#define STMD_Dir_Pin GPIO_PIN_14
+#define STMD_Dir_GPIO_Port GPIOB
+#define STMD_Step_Pin GPIO_PIN_15
+#define STMD_Step_GPIO_Port GPIOB
+#define STMD_En_Pin GPIO_PIN_8
+#define STMD_En_GPIO_Port GPIOA
+#define STMD_Cfg1_Pin GPIO_PIN_4
+#define STMD_Cfg1_GPIO_Port GPIOB
 #define IN_LightBarrier_Pin GPIO_PIN_9
 #define IN_LightBarrier_GPIO_Port GPIOB
 

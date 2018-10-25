@@ -19,21 +19,10 @@ L Driver_Motor:Pololu_Breakout_A4988 A1
 U 1 1 5BBEEFB7
 P 8650 2800
 F 0 "A1" H 8700 3678 50  0000 C CNN
-F 1 "Pololu_Breakout_A4988" H 8700 3587 50  0000 C CNN
+F 1 "Watterott SilentStepStick TMC2100" H 7850 3500 50  0000 C CNN
 F 2 "Module:Pololu_Breakout-16_15.2x20.3mm" H 8925 2050 50  0001 L CNN
 F 3 "https://www.pololu.com/product/2980/pictures" H 8750 2500 50  0001 C CNN
 	1    8650 2800
-	1    0    0    -1  
-$EndComp
-$Comp
-L Regulator_Linear:L7805 U1
-U 1 1 5BBEF1BE
-P 3700 1250
-F 0 "U1" H 3700 1492 50  0000 C CNN
-F 1 "TA78L05F" H 3700 1401 50  0000 C CNN
-F 2 "SMD_Packages_Millable:SOT-89-3_millable_0.6mm" H 3725 1100 50  0001 L CIN
-F 3 "http://www.st.com/content/ccc/resource/technical/document/datasheet/41/4f/b3/b0/12/d4/47/88/CD00000444.pdf/files/CD00000444.pdf/jcr:content/translations/en.CD00000444.pdf" H 3700 1200 50  0001 C CNN
-	1    3700 1250
 	1    0    0    -1  
 $EndComp
 $Comp
@@ -563,7 +552,6 @@ NoConn ~ 2950 3800
 NoConn ~ 2950 3900
 NoConn ~ 2950 4000
 NoConn ~ 2950 4100
-NoConn ~ 2950 4200
 NoConn ~ 2950 4300
 NoConn ~ 2950 4400
 NoConn ~ 2950 4500
@@ -587,12 +575,12 @@ NoConn ~ 1750 3750
 $Comp
 L power:GND #PWR021
 U 1 1 5BC1C652
-P 1700 4250
-F 0 "#PWR021" H 1700 4000 50  0001 C CNN
-F 1 "GND" H 1705 4077 50  0000 C CNN
-F 2 "" H 1700 4250 50  0001 C CNN
-F 3 "" H 1700 4250 50  0001 C CNN
-	1    1700 4250
+P 1700 4300
+F 0 "#PWR021" H 1700 4050 50  0001 C CNN
+F 1 "GND" H 1705 4127 50  0000 C CNN
+F 2 "" H 1700 4300 50  0001 C CNN
+F 3 "" H 1700 4300 50  0001 C CNN
+	1    1700 4300
 	1    0    0    -1  
 $EndComp
 Wire Wire Line
@@ -612,11 +600,7 @@ Wire Wire Line
 Wire Wire Line
 	7550 2900 8250 2900
 Wire Wire Line
-	2950 6400 7300 6400
-Wire Wire Line
-	7300 6400 7300 3000
-Wire Wire Line
-	7300 3000 8250 2700
+	7300 2700 8250 2700
 Wire Wire Line
 	2950 6300 7450 6300
 Wire Wire Line
@@ -641,17 +625,13 @@ $EndComp
 Wire Wire Line
 	8150 3100 8250 3100
 Wire Wire Line
-	2950 5100 7700 5100
-Wire Wire Line
-	7700 5100 7700 3100
-Wire Wire Line
 	7700 3100 7850 3100
-Text Label 3000 6400 0    50   ~ 0
-STD_En
+Text Label 3000 4200 0    50   ~ 0
+STMD_En
 Text Label 3000 6300 0    50   ~ 0
-STD_Step
+STMD_Step
 Text Label 3000 6200 0    50   ~ 0
-STD_Dir
+STMD_Dir
 Text Label 3000 5700 0    50   ~ 0
 Light_Barrier
 Wire Wire Line
@@ -660,7 +640,6 @@ Wire Wire Line
 	3350 3400 3350 3450
 NoConn ~ 2950 4900
 NoConn ~ 2950 5000
-NoConn ~ 2950 5200
 NoConn ~ 2950 5300
 NoConn ~ 2950 5400
 NoConn ~ 2950 5500
@@ -812,4 +791,33 @@ Wire Wire Line
 Connection ~ 2850 1250
 Wire Wire Line
 	2850 1250 3200 1250
+Wire Wire Line
+	1750 4250 1700 4250
+Connection ~ 1700 4250
+Wire Wire Line
+	1700 4250 1700 4300
+Wire Wire Line
+	2950 4200 4850 4200
+Wire Wire Line
+	4850 4200 4850 5000
+Wire Wire Line
+	4850 5000 7300 5000
+Wire Wire Line
+	7300 5000 7300 2700
+Wire Wire Line
+	2950 5200 7700 5200
+Wire Wire Line
+	7700 3100 7700 5200
+NoConn ~ 2950 5100
+$Comp
+L Toshiba~-~Power:TA78L05F U1
+U 1 1 5BC4AD05
+P 3700 1250
+F 0 "U1" H 3700 1492 50  0000 C CNN
+F 1 "TA78L05F" H 3700 1401 50  0000 C CNN
+F 2 "SMD_Packages_Millable:SOT-89-3_millable_0.6mm" H 3725 1100 50  0001 L CIN
+F 3 "http://www.st.com/content/ccc/resource/technical/document/datasheet/41/4f/b3/b0/12/d4/47/88/CD00000444.pdf/files/CD00000444.pdf/jcr:content/translations/en.CD00000444.pdf" H 3700 1200 50  0001 C CNN
+	1    3700 1250
+	1    0    0    -1  
+$EndComp
 $EndSCHEMATC

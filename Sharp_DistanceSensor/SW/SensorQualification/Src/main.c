@@ -106,6 +106,9 @@ typedef enum eMQ_CommandList
 	eCMD_SampleSensor,
 	eCMD_SensorValue,
 	eCMD_PerformStep,
+	eCMD_MoveToAngle,
+	eCMD_PrintSTMDConfig,
+	eCMD_SetAngleResolution,
 	eCMD_Abort
 }T_MQ_CommandList;
 
@@ -115,6 +118,7 @@ typedef struct strMQ_Command
 	T_MQ_CommandList xMQ_Cmd;
 	int32_t i32MQ_Cmd_ParamA;
 	int32_t i32MQ_Cmd_ParamB;
+	int32_t i32MQ_Cmd_ParamC;
 }T_MQ_Command;
 
 #define DIST_SENSOR_SAMPLING_CNT	100
@@ -177,7 +181,9 @@ typedef enum eSystemMode
 	eSysMode_Tx,
 	eSysMode_FullScan,
 	eSysMode_PartialScan,
-	eSysMode_StaticScan
+	eSysMode_StaticScan,
+	eSysMode_Homing,
+	eSysMode_MoveToAngle
 }T_System_Mode;
 
 T_System_Mode xSysModeNow;
@@ -185,16 +191,30 @@ T_System_Mode xSysModeNext;
 T_System_Mode xSysMode = eSysMode_Idle; //TODO: change to start up
 
 
-#define STMD_ROTATION_INC_COARSE	   9000L
-#define STMD_ROTATION_INC_MEDIUM	   4500L
-#define STMD_ROTATION_INC_FINE		   1125L
+#define STMD_ROTATION_INC_COARSE	  45000L
+#define STMD_ROTATION_INC_FINE		  22500L
 #define STMD_ROTATION_360DEG		3600000L
+
+#define STMD_STEP_INC_COARSE	4500L
+#define STMD_STEP_INC_FINE		1125L
 
 typedef enum eSTMD_RetVals
 {
 	eSTMD_Err = 0,
 	eSTMD_Ok
 }T_STMD_RetVals;
+
+typedef enum eSTMD_StepResolution
+{
+	eSTMD_StepRes_Coarse = 0,
+	eSTMD_StepRes_Fine
+}T_STMD_StepResolution;
+
+typedef enum eSTMD_StepDirection
+{
+	eSTMD_CW = 0,
+	eSTMD_CCW
+}T_STMD_StepDirection;
 
 typedef struct strSTMD_PinConfig
 {
@@ -213,6 +233,9 @@ typedef struct strSTMD_Rotation
 	int32_t i32STMD_CurrentAngle;
 	int32_t i32STMD_MaxAngle;
 	int32_t i32STMD_AngleIncrement;
+	int32_t i32STMD_StepIncrement;
+	T_STMD_StepResolution xStepResolution;
+	T_STMD_StepDirection xStepDirection;
 }T_STMD_Rotation;
 
 typedef struct strSTMD_Config
@@ -221,18 +244,6 @@ typedef struct strSTMD_Config
 	T_STMD_Rotation xSTMD_Rotation;
 }T_STMD_Config;
 
-typedef enum eSTMD_StepResolution
-{
-	eSTMD_Coarse = 0,
-	eSTMD_Medium,
-	eSMTD_Fine
-}T_STMD_StepResolution;
-
-typedef enum eSTMD_StepDirection
-{
-	eSTMD_CW = 0,
-	eSTMD_CCW
-}T_STMD_StepDirection;
 /*
 T_STMD_RetVals xSTMD_SetConfig(T_STMD_Config * pxSTMD_Config);
 
@@ -256,11 +267,11 @@ void setStepResolution(T_STMD_StepResolution xStepRes)
 	/* for readability */
 	T_STMD_PinConfig * pxPinCfg = &xSTMD_Config.xSTMD_PinConfig;
 
-	if(eSMTD_Fine == xStepRes)
+	if(eSTMD_StepRes_Fine == xStepRes)
 	{
 		HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Cfg1,pxPinCfg->u16STMD_GPIO_Pin_Cfg1,GPIO_PIN_RESET);
 	}
-	else if((eSTMD_Medium == xStepRes) || eSTMD_Coarse == xStepRes)
+	else if(eSTMD_StepRes_Coarse == xStepRes)
 	{
 		HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Cfg1,pxPinCfg->u16STMD_GPIO_Pin_Cfg1,GPIO_PIN_SET);
 	}
@@ -274,16 +285,23 @@ T_STMD_RetVals xSTMD_SetConfig(T_STMD_Config * pxSTMD_Config)
 	xSTMD_Config.xSTMD_PinConfig = pxSTMD_Config->xSTMD_PinConfig;
 	/* rotation */
 	/* verify settings */
-	if((STMD_ROTATION_INC_FINE == pxSTMD_Config->xSTMD_Rotation.i32STMD_AngleIncrement) ||
-			(STMD_ROTATION_INC_MEDIUM == pxSTMD_Config->xSTMD_Rotation.i32STMD_AngleIncrement) ||
-			(STMD_ROTATION_INC_MEDIUM == pxSTMD_Config->xSTMD_Rotation.i32STMD_AngleIncrement))
+	//if((STMD_ROTATION_INC_FINE == pxSTMD_Config->xSTMD_Rotation.i32STMD_AngleIncrement) ||
+	//		(STMD_ROTATION_INC_COARSE == pxSTMD_Config->xSTMD_Rotation.i32STMD_AngleIncrement))
+	if(eSTMD_StepRes_Coarse == pxSTMD_Config->xSTMD_Rotation.xStepResolution)
 	{
-		xSTMD_Config.xSTMD_Rotation.i32STMD_AngleIncrement = pxSTMD_Config->xSTMD_Rotation.i32STMD_AngleIncrement;
+		xSTMD_Config.xSTMD_Rotation.i32STMD_AngleIncrement = STMD_ROTATION_INC_COARSE;
+		xSTMD_Config.xSTMD_Rotation.i32STMD_StepIncrement = STMD_STEP_INC_COARSE;
+	}
+	else if(eSTMD_StepRes_Fine == pxSTMD_Config->xSTMD_Rotation.xStepResolution)
+	{
+		xSTMD_Config.xSTMD_Rotation.i32STMD_AngleIncrement = STMD_ROTATION_INC_FINE;
+		xSTMD_Config.xSTMD_Rotation.i32STMD_StepIncrement = STMD_STEP_INC_FINE;
 	}
 	else
 	{
 		return eSTMD_Err;
 	}
+
 	if((0 < pxSTMD_Config->xSTMD_Rotation.i32STMD_MaxAngle) &&
 			(STMD_ROTATION_360DEG >= pxSTMD_Config->xSTMD_Rotation.i32STMD_MaxAngle))
 	{
@@ -299,6 +317,23 @@ T_STMD_RetVals xSTMD_SetConfig(T_STMD_Config * pxSTMD_Config)
 
 	/* return success */
 	return eSTMD_Ok;
+}
+
+void xSTMD_PrintConfig(char * pConfigString)
+{
+	int32_t i32Idx=0;
+
+	/* Angle per Step */
+	i32Idx = sprintf(pConfigString, "Angle inc. per step: %li\n",xSTMD_Config.xSTMD_Rotation.i32STMD_StepIncrement);
+	pConfigString+=i32Idx;
+	/* Angle increment */
+	i32Idx = sprintf(pConfigString,"Angle inc.: %li\n",xSTMD_Config.xSTMD_Rotation.i32STMD_AngleIncrement);
+	pConfigString+=i32Idx;
+	/* Current position */
+	i32Idx = sprintf(pConfigString,"Current angle: %li\n",xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle);
+	pConfigString+=i32Idx;
+	/* Max Angle */
+	i32Idx = sprintf(pConfigString,"Max. angle: %li\n",xSTMD_Config.xSTMD_Rotation.i32STMD_MaxAngle);
 }
 
 T_STMD_RetVals xSTMD_PerformHomingCycle(void)
@@ -415,10 +450,13 @@ int main(void)
   xConfig.xSTMD_PinConfig.u16STMD_GPIO_Pin_Dir = STMD_Dir_Pin;
   xConfig.xSTMD_PinConfig.xSTMD_GPIO_Port_Pin_Step = STMD_Step_GPIO_Port;
   xConfig.xSTMD_PinConfig.u16STMD_GPIO_Pin_Step = STMD_Step_Pin;
-  xConfig.xSTMD_Rotation.i32STMD_AngleIncrement = STMD_ROTATION_INC_MEDIUM;
   xConfig.xSTMD_Rotation.i32STMD_CurrentAngle = 0;
   xConfig.xSTMD_Rotation.i32STMD_MaxAngle = STMD_ROTATION_360DEG;
+  xConfig.xSTMD_Rotation.xStepDirection = eSTMD_CW;
+  xConfig.xSTMD_Rotation.xStepResolution = eSTMD_StepRes_Coarse;
   xSTMD_SetConfig(&xConfig);
+  /* set resolution */
+  setStepResolution(xConfig.xSTMD_Rotation.xStepResolution);
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -707,25 +745,52 @@ void FlushRxCmd(void)
 
 T_MQ_Command AnalyseRxCmd(void)
 {
-	char * cmd_perform_reduced_scan = "RSCAN %d";
-	char * cmd_perform_complete_scan = "CSCAN";
+	char * cmd_perform_partial_scan = "PSCAN %d %d %d";
+	char * cmd_perform_continuous_scan = "CSCAN";
+	char * cmd_perform_full_scan = "FSCAN";
 	char * cmd_sample_distance_sensor = "DISTCONV";
 	char * cmd_sample_distance_sensor_N = "DISTNCONV %d";
 	char * cmd_stop_sample_distance_sensor = "STOPDISTCONV";
+	char * cmd_set_angle_resolution = "ANGLERES %d";
+	char * cmd_goto_position = "POS %d";
+	char * cmd_perform_homing = "HOME";
+	char * cmd_abort = "ABORT";
+	char * cmd_print_stmd_config = "CSTMD";
 	T_MQ_Command xRetVal;
 	xRetVal.xMQ_Cmd = eCMD_None;
 
 	int32_t i32Param = 0;
+	int32_t i32ParamB = 0;
+	int32_t i32ParamC = 0;
 
 	/* analyse received command	*/
-	//iRetVal = sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_Trig_level,&i32Param);
-	//if(0 < iRetVal)
-	if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_reduced_scan,&i32Param))
+	if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_abort))
+		{
+			xRetVal.xMQ_Cmd = eCMD_Abort;
+		}
+	else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_partial_scan,&i32Param,&i32ParamB, &i32ParamC))
 	{
-		/* perform reduced resolution scan with 360° / i32Param degree steps*/
-
+		/* perform partial scan from angle i32ParamB to i32ParamC and take i32Param samples at each angle */
+		xRetVal.xMQ_Cmd = eCMD_PartialScanMeasurement;
+		xRetVal.i32MQ_Cmd_ParamA = i32Param;
+		xRetVal.i32MQ_Cmd_ParamB = i32ParamB;
+		xRetVal.i32MQ_Cmd_ParamC = i32ParamC;
 	}
-	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_complete_scan))
+	else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_set_angle_resolution,&i32Param))
+	{
+		xRetVal.xMQ_Cmd = eCMD_SetAngleResolution;
+		xRetVal.i32MQ_Cmd_ParamA = i32Param;
+	}
+	else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_goto_position,&i32Param))
+	{
+		xRetVal.xMQ_Cmd = eCMD_MoveToAngle;
+		xRetVal.i32MQ_Cmd_ParamA = i32Param;
+	}
+	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_homing))
+	{
+		xRetVal.xMQ_Cmd = eCMD_PerformHoming;
+	}
+	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_full_scan))
 	{
 		/* perform a full resolution scan */
 		//xSysModeNext = eSysMode_FullScan;
@@ -760,6 +825,10 @@ T_MQ_Command AnalyseRxCmd(void)
 				xRetVal.i32MQ_Cmd_ParamA = i32Param;
 			}
 		}
+	}
+	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_print_stmd_config))
+	{
+		xRetVal.xMQ_Cmd = eCMD_PrintSTMDConfig;
 	}
 	return xRetVal;
 }
@@ -814,7 +883,7 @@ void Print_Complete_Sensor_Data(T_LinearBuffer * pxLinBuff)
 			fltADCVoltage /= 4096;
 			fltADCVoltage *= 100;
 			u16ADCVoltage = (uint16_t)fltADCVoltage;
-			u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%d %d %d %i\n", su16MsgCnt, pxLinBuff->au32Buffer[u16Idx],u16ADCVoltage, xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle);
+			u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%d %ld %d %li\n", su16MsgCnt, pxLinBuff->au32Buffer[u16Idx],u16ADCVoltage, xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle);
 		}
 
 
@@ -837,7 +906,7 @@ void Print_Sensor_Data(T_LinearBuffer * pxLinBuff)
 		}
 		u32Avg /= LINBUFFSIZE;
 
-		u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%i %d\n", xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle, u32Avg);
+		u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%li %ld\n", xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle, u32Avg);
 
 		CDC_Transmit_FS(&au08DataOutput[0],strlen(au08DataOutput));
 	}
@@ -850,12 +919,22 @@ void Print_Sensor_Data_Value(uint32_t u32SensorVal)
 	if(USBD_STATE_CONFIGURED == hUsbDeviceFS.dev_state)
 	{
 
-		u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%i %d\n", xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle, u32SensorVal);
+		u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%li %ld\n", xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle, u32SensorVal);
 
 		CDC_Transmit_FS(&au08DataOutput[0],strlen(au08DataOutput));
 	}
 }
 
+void Print_Config(void)
+{
+	if(USBD_STATE_CONFIGURED == hUsbDeviceFS.dev_state)
+	{
+		/* get config */
+		xSTMD_PrintConfig((char *)&au08DataOutput[0]);
+		/* send */
+		CDC_Transmit_FS(&au08DataOutput[0],strlen(au08DataOutput));
+	}
+}
 
 typedef enum eLEDPattern
 {
@@ -933,6 +1012,294 @@ inline void LED_Work(T_LED_Pattern xLEDPattern)
 	/* write to led pin */
 	HAL_GPIO_WritePin(SYS_LED_GPIO_Port,SYS_LED_Pin,sxLEDPinState);
 }
+
+
+typedef enum eWorkStates
+{
+	eWork_Abort = 0,
+	eWork_Started,
+	eWork_ReqMove,
+	eWork_WaitMove,
+	eWork_ReqSampling,
+	eWork_WaitSampling,
+	eWork_PrintData,
+	eWork_Done,
+	eWork_Idle,
+	eWork_Moving
+}T_WorkStates;
+
+T_WorkStates xScanWork(T_STMD_StepDirection xStepDir, int32_t i32StartAngle, int32_t i32StopAngle, uint16_t u16SampleCount)
+{
+	static T_WorkStates xsWorkState = eWork_Started;
+	static int32_t si32NextAngle = 0;
+	static uint16_t su16SCount = 0;
+	static uint32_t u32SensorVal = 0;
+	T_MQ_Command xMqCommand;
+
+	switch (xsWorkState) {
+		case eWork_Started:
+			/* verify given parameters */
+			/* take over parameters */
+			su16SCount = u16SampleCount;
+			/* move to start angle */
+			if(xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle != i32StartAngle)
+			{
+				/* request to move to angle */
+				si32NextAngle = i32StartAngle;
+				xsWorkState = eWork_ReqMove;
+			}
+			else
+			{
+				/* already there */
+				si32NextAngle = i32StartAngle;
+				/* => directly request sensor sampling */
+				xsWorkState = eWork_ReqSampling;
+			}
+			break;
+		case eWork_ReqMove:
+			/* request to move to angle */
+			if(0 != xQMainToSTMDHandle)
+			{
+				/* prepare command */
+				xMqCommand.xMQ_Cmd = eCMD_MoveToAngle;
+				xMqCommand.i32MQ_Cmd_ParamA = si32NextAngle;
+				/* send command */
+				if(pdPASS == xQueueSendToBack(xQMainToSTMDHandle,&xMqCommand,0))
+				{
+					/* wait for move to finish */
+					xsWorkState = eWork_WaitMove;
+				}
+				else
+				{
+					/* ERR: Item not put on queue */
+					xsWorkState = eWork_Abort;
+				}
+			}
+			else
+			{
+				/* ERR: Queue not available */
+				xsWorkState = eWork_Abort;
+			}
+			break;
+		case eWork_WaitMove:
+			/* check for response of stepper motor driver task */
+			/* Queue available ? */
+			if(0 != xQSTMDToMainHandle)
+			{
+				if(pdPASS == xQueueReceive(xQSTMDToMainHandle,&xMqCommand, 0))
+				{
+					/* evaluate response */
+					if(eCMD_Accepted == xMqCommand.xMQ_Cmd)
+					{
+						/* angle reached -> request sampling */
+						xsWorkState = eWork_ReqSampling;
+					}
+					else
+					{
+						/* ERR: Angle could not be reached */
+						xsWorkState = eWork_Abort;
+					}
+				}
+				else
+				{
+					/* no message on the queue -> keep state */
+					xsWorkState = eWork_WaitMove;
+					/*ToDo: error handling, if no message arrived after x seconds */
+				}
+			}
+			else
+			{
+				/* ERR: Queue not available */
+				xsWorkState = eWork_Abort;
+			}
+			break;
+		case eWork_ReqSampling:
+			/* request sensor sampling task */
+			if(0 != xQMainToSensorHandle)
+			{
+				xMqCommand.xMQ_Cmd = eCMD_SampleSensor;
+				if(pdPASS == xQueueSendToBack(xQMainToSensorHandle,&xMqCommand,0))
+				{
+					/* wait for sampling to finish */
+					xsWorkState = eWork_WaitSampling;
+				}
+				else
+				{
+					/* ERR: Item not put on queue */
+					xsWorkState = eWork_Abort;
+				}
+			}
+			else
+			{
+				/* ERR: Queue not available */
+				xsWorkState = eWork_Abort;
+			}
+			break;
+		case eWork_WaitSampling:
+			/* check if sampling is done */
+			if(0 != xQSensorToMainHandle)
+			{
+				if(pdPASS == xQueueReceive(xQSensorToMainHandle,&xMqCommand,0))
+				{
+					/* evaluate response */
+					if(eCMD_SensorValue == xMqCommand.xMQ_Cmd)
+					{
+						/* remember value */
+						u32SensorVal = (uint32_t)xMqCommand.i32MQ_Cmd_ParamA;
+						xsWorkState = eWork_PrintData;
+					}
+					else
+					{
+						/* sampling failed */
+						xsWorkState = eWork_Abort;
+					}
+				}
+				else
+				{
+					/* no message on the queue -> keep state */
+					xsWorkState = eWork_WaitSampling;
+					/*ToDo: error handling, if no message after x seconds */
+				}
+			}
+			else
+			{
+				/* ERR: Queue not available */
+				xsWorkState = eWork_Abort;
+			}
+			break;
+		case eWork_PrintData:
+			/* print data */
+			Print_Sensor_Data_Value(u32SensorVal);
+			/* count sample */
+			su16SCount--;
+			if(0 != su16SCount)
+			{
+				/* take another sample at this position */
+				xsWorkState = eWork_ReqSampling;
+			}
+			else
+			{
+				/* sampling done for the current angle */
+				su16SCount = u16SampleCount;
+				/* check if end position was reached */
+				if(si32NextAngle != i32StopAngle)
+				{
+					/* TODO: richtung abfragen*/
+					/* set next angle */
+					si32NextAngle = xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle + xSTMD_Config.xSTMD_Rotation.i32STMD_AngleIncrement;
+					/* and request move */
+					xsWorkState = eWork_ReqMove;
+				}
+				else
+				{
+					xsWorkState = eWork_Done;
+				}
+			}
+			break;
+		case eWork_Done:
+			/* switch back to idle */
+			xsWorkState = eWork_Started;
+			break;
+		case eWork_Abort:
+		default:
+			break;
+	}
+	return xsWorkState;
+}
+
+typedef enum eMove_LimitSwitch
+{
+	eMove_IgnoreLimitSwitch = 0,
+	eMove_CheckLimitSwitch
+}T_Move_LimitSwitch;
+
+T_WorkStates xMoveWork(T_WorkStates xWorkState, int32_t i32TargetAngle, T_Move_LimitSwitch xLimitSwitch)
+{
+	/* for readability */
+	T_STMD_Rotation * pxRotation = &xSTMD_Config.xSTMD_Rotation;
+
+
+	T_MQ_Command xMqCommand;
+
+	switch (xWorkState) {
+		case eWork_Started:
+			/* check if move is needed */
+			if(i32TargetAngle == pxRotation->i32STMD_CurrentAngle)
+			{
+				/* done */
+				xWorkState = eWork_Done;
+			}
+			else
+			{
+				/* request move */
+				xWorkState = eWork_ReqMove;
+			}
+			break;
+		case eWork_ReqMove:
+			/* request to move to angle */
+			if(0 != xQMainToSTMDHandle)
+			{
+				/* prepare command */
+				xMqCommand.xMQ_Cmd = eCMD_MoveToAngle;
+				xMqCommand.i32MQ_Cmd_ParamA = i32TargetAngle;
+				/* send command */
+				if(pdPASS == xQueueSendToBack(xQMainToSTMDHandle,&xMqCommand,0))
+				{
+					/* wait for move to finish */
+					xWorkState = eWork_WaitMove;
+				}
+				else
+				{
+					/* ERR: Item not put on queue */
+					xWorkState = eWork_Abort;
+				}
+			}
+			else
+			{
+				/* ERR: Queue not available */
+				xWorkState = eWork_Abort;
+			}
+			break;
+		case eWork_WaitMove:
+			/* check for response of stepper motor driver task */
+			/* Queue available ? */
+			if(0 != xQSTMDToMainHandle)
+			{
+				if(pdPASS == xQueueReceive(xQSTMDToMainHandle,&xMqCommand, 0))
+				{
+					/* evaluate response */
+					if(eCMD_Accepted == xMqCommand.xMQ_Cmd)
+					{
+						/* angle reached -> done */
+						xWorkState = eWork_Done;
+					}
+					else
+					{
+						/* ERR: Angle could not be reached */
+						xWorkState = eWork_Abort;
+					}
+				}
+				else
+				{
+					/* no message on the queue -> keep state */
+					xWorkState = eWork_WaitMove;
+					/*ToDo: error handling, if no message arrived after x seconds */
+				}
+			}
+			else
+			{
+				/* ERR: Queue not available */
+				xWorkState = eWork_Abort;
+			}
+			break;
+		default:
+			//xWorkState = eWork_Started;
+			break;
+	}
+
+	return xWorkState;
+}
+
 /* USER CODE END 4 */
 
 /* MainTaskWork function */
@@ -949,6 +1316,12 @@ void MainTaskWork(void const * argument)
 	T_MQ_Command xMqCmd;
 	T_MQ_Command xMqCOMCmd;
 
+	static int32_t si32StartAngle, si32StopAngle;
+	static uint16_t su16SampleCount;
+	T_WorkStates xWorkTaskResponse;
+
+	T_WorkStates xMoveWorkState = eWork_Started;
+
 	// Initialise the xLastWakeTime variable with the current time.
 	xLastWakeTime = xTaskGetTickCount();
 
@@ -963,12 +1336,10 @@ void MainTaskWork(void const * argument)
 		/* check for incoming COM message */
 		if(0 != xQCOMToMainHandle)
 		{
-			xMQRetVal = xQueueReceive(xQCOMToMainHandle, &xMqCOMCmd,0);
-			if(pdPASS != xMQRetVal)
-			{
-				/* error or no message received */
-				xMqCOMCmd.xMQ_Cmd = eCMD_None;
-			}
+			/* preload message */
+			xMqCOMCmd.xMQ_Cmd = eCMD_None;
+			/* check for new message */
+			xQueueReceive(xQCOMToMainHandle, &xMqCOMCmd,0);
 		}
 
 		/* check state */
@@ -1017,7 +1388,20 @@ void MainTaskWork(void const * argument)
 								/* print sensor value */
 								Print_Sensor_Data_Value((uint32_t)xMqCmd.i32MQ_Cmd_ParamA);
 								/* perform next step */
-								if(eSTMD_Ok == xSTMD_PerformStep(xCurrStepDir, eSTMD_Medium))
+
+								//if(eSTMD_Ok == xSTMD_PerformStep(xCurrStepDir, eSTMD_Medium))
+								if(0 != xQMainToSTMDHandle)
+								{
+									xMqCmd.xMQ_Cmd = eCMD_PerformStep;
+									xMqCmd.i32MQ_Cmd_ParamA = (int32_t)xCurrStepDir;
+									xMqCmd.i32MQ_Cmd_ParamB = (int32_t)4;
+									xMQRetVal = xQueueSendToBack(xQMainToSTMDHandle,&xMqCmd, 0);
+								}
+								else
+								{
+									xMQRetVal = pdFAIL;
+								}
+								if(pdPASS == xMQRetVal)
 								{
 									/* request next measurement */
 									xMqCmd.xMQ_Cmd = eCMD_SampleSensor;
@@ -1048,6 +1432,28 @@ void MainTaskWork(void const * argument)
 							}
 						}
 					}
+				}
+			}
+		}
+		else if(eSysMode_PartialScan == xSysMode)
+		{
+			/* first check if an abort request was received */
+			if(eCMD_Abort == xMqCOMCmd.xMQ_Cmd)
+			{
+				xSysMode = eSysMode_Idle;
+			}
+			else
+			{
+				xWorkTaskResponse = xScanWork(eSTMD_CW,si32StartAngle,si32StopAngle,su16SampleCount);
+				if((eWork_Abort == xWorkTaskResponse) || (eWork_Done == xWorkTaskResponse))
+				{
+					/* error or done -> switch to idle mode */
+					xSysMode = eSysMode_Idle;
+				}
+				else
+				{
+					/* keep state */
+					xSysMode = eSysMode_PartialScan;
 				}
 			}
 		}
@@ -1088,6 +1494,28 @@ void MainTaskWork(void const * argument)
 				}
 			}
 		}
+		else if(eSysMode_MoveToAngle == xSysMode)
+		{
+			/* first check if an abort request was received */
+			if(eCMD_Abort == xMqCOMCmd.xMQ_Cmd)
+			{
+				xSysMode = eSysMode_Idle;
+			}
+			else
+			{
+				xWorkTaskResponse = xMoveWork(xWorkTaskResponse, si32StopAngle, eMove_IgnoreLimitSwitch);
+				if((eWork_Abort == xWorkTaskResponse) || (eWork_Done == xWorkTaskResponse))
+				{
+					/* error or done -> switch to idle mode */
+					xSysMode = eSysMode_Idle;
+				}
+				else
+				{
+					/* keep state */
+					xSysMode = eSysMode_MoveToAngle;
+				}
+			}
+		}
 		else if(eSysMode_Idle == xSysMode)
 		{
 			/* evaluate incoming com message */
@@ -1099,8 +1527,29 @@ void MainTaskWork(void const * argument)
 					u08SampleSensorRQ = 0;
 					xSysMode = eSysMode_StaticScan;
 					break;
+				case eCMD_PartialScanMeasurement:
+					/* take over parameters */
+					si32StartAngle = xMqCOMCmd.i32MQ_Cmd_ParamB;
+					si32StopAngle = xMqCOMCmd.i32MQ_Cmd_ParamC;
+					su16SampleCount = (uint16_t)xMqCOMCmd.i32MQ_Cmd_ParamA;
+					/* change state */
+					xSysMode = eSysMode_PartialScan;
+					break;
 				case eCMD_StaticMeasurement:
 
+					break;
+				case eCMD_MoveToAngle:
+					si32StopAngle = xMqCOMCmd.i32MQ_Cmd_ParamA;
+					xWorkTaskResponse = eWork_Started;
+					xSysMode = eSysMode_MoveToAngle;
+					break;
+				case eCMD_SetAngleResolution:
+					xSTMD_Config.xSTMD_Rotation.i32STMD_AngleIncrement = xMqCOMCmd.i32MQ_Cmd_ParamA;
+					xSysMode = eSysMode_Idle;
+					break;
+				case eCMD_PrintSTMDConfig:
+					Print_Config();
+					xSysMode = eSysMode_Idle;
 					break;
 				default:
 					break;
@@ -1196,7 +1645,7 @@ void MainTaskWork(void const * argument)
 					/* mark buffer as transmitted */
 					pxLinearBufferReadyForTx = 0;
 					/* perform step */
-					if(eSTMD_Ok == xSTMD_PerformStep(xCurrStepDir, eSTMD_Medium))
+					if(eSTMD_Ok == xSTMD_PerformStep(xCurrStepDir, eSTMD_StepRes_Coarse))
 					{
 						/* start next measurement */
 						xSensorSamplingNewState = eSensorSampling_OneShot;
@@ -1412,74 +1861,6 @@ void SampleSensorsWork(void const * argument)
 		{
 			LED_Work(eLED_Idle);
 		}
-
-		if(1)
-		{
-
-		}
-		else if(eSensorSampling_Continuous == xSensorSamplingCurrentState)
-		{
-			LED_Work(eLED_Running);
-			/* sample distance sensor */
-			u32ADCVal = Distance_ConvertSensorOutput();
-			/* put value onto buffer */
-			u08RetVal = u08LinearBufferPush(pxLinearBufferActive, u32ADCVal);
-			/* check if buffer is full */
-			if(0 == u08RetVal)
-			{
-				/* buffer is full */
-				/* mark this buffer as ready for tx */
-				pxLinearBufferReadyForTx = pxLinearBufferActive;
-				/* switch to other buffer */
-				if(&xLinearBuffer_1 == pxLinearBufferActive)
-				{
-					pxLinearBufferActive = &xLinearBuffer_2;
-				}
-				else if(&xLinearBuffer_2 == pxLinearBufferActive)
-				{
-					pxLinearBufferActive = &xLinearBuffer_1;
-				}
-				/* take over new state */
-				xSensorSamplingCurrentState = xSensorSamplingNewState;
-			}
-		}
-		else if(eSensorSampling_OneShot == xSensorSamplingCurrentState)
-		{
-			LED_Work(eLED_Running);
-			/* sample distance sensor */
-			u32ADCVal = Distance_ConvertSensorOutput();
-			/* put value onto buffer */
-			u08RetVal = u08LinearBufferPush(pxLinearBufferActive, u32ADCVal);
-			/* check if buffer is full */
-			if(0 == u08RetVal)
-			{
-				/* buffer is full */
-				/* mark this buffer as ready for tx */
-				pxLinearBufferReadyForTx = pxLinearBufferActive;
-				/* take over new state */
-				xSensorSamplingNewState = eSensorSampling_Stopped;
-				xSensorSamplingCurrentState = xSensorSamplingNewState;
-			}
-		}
-		else if(eSensorSampling_Stopped == xSensorSamplingCurrentState)
-		{
-			LED_Work(eLED_Idle);
-			/* check if sensor sampling shall be enabled */
-			if(eSensorSampling_Continuous == xSensorSamplingNewState)
-			{
-				/* init buffers and pointers */
-				Init_Linear_Buffers();
-				/* and take over new state */
-				xSensorSamplingCurrentState = xSensorSamplingNewState;
-			}
-			else if(eSensorSampling_OneShot == xSensorSamplingNewState)
-			{
-				/* init buffers and pointers */
-				Init_Linear_Buffers();
-				/* and take over new state */
-				xSensorSamplingCurrentState = xSensorSamplingNewState;
-			}
-		}
 	}
   /* USER CODE END SampleSensorsWork */
 }
@@ -1488,10 +1869,169 @@ void SampleSensorsWork(void const * argument)
 void SMTDWork(void const * argument)
 {
   /* USER CODE BEGIN SMTDWork */
+	T_MQ_Command xMqCommand;
+	T_WorkStates xSTMDWorkState = eWork_Idle;
+	int32_t i32TargetAngle = 0;
+	/* for readability */
+	T_STMD_Rotation * pxRotation = &xSTMD_Config.xSTMD_Rotation;
+	T_STMD_PinConfig * pxPinCfg = &xSTMD_Config.xSTMD_PinConfig;
+
+#define RAMPUP_LENGTH	5
+	uint8_t au08RampUp[RAMPUP_LENGTH] ={10, 9, 8, 7, 6, 5};
+	uint8_t u08RampUpIdx=0;
+	volatile int32_t i32StepCount;
+
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1000);
+    osDelay(50);
+    /* preload in case of no message */
+    xMqCommand.xMQ_Cmd = eCMD_None;
+    /* new message available ? */
+    if(0 != xQMainToSTMDHandle)
+    {
+    	xQueueReceive(xQMainToSTMDHandle,&xMqCommand,0);
+    }
+
+    /* work depending on state */
+    switch (xSTMDWorkState) {
+		case eWork_Idle:
+			/* process any incoming command */
+			if(eCMD_MoveToAngle == xMqCommand.xMQ_Cmd)
+			{
+				/* evaluate parameters */
+				/* take over */
+				i32TargetAngle = xMqCommand.i32MQ_Cmd_ParamA;
+				u08RampUpIdx = RAMPUP_LENGTH;
+				/* choose in which direction to step */
+				if(i32TargetAngle > pxRotation->i32STMD_CurrentAngle)
+				{
+					pxRotation->i32STMD_AngleIncrement = abs(pxRotation->i32STMD_AngleIncrement);
+					pxRotation->xStepDirection = eSTMD_CW;
+					/* calculate amount of steps needed to reach target */
+					i32StepCount = (i32TargetAngle - pxRotation->i32STMD_CurrentAngle)/pxRotation->i32STMD_StepIncrement;
+					/* and start moving */
+					xSTMDWorkState = eWork_Moving;
+				}
+				else if(i32TargetAngle < pxRotation->i32STMD_CurrentAngle)
+				{
+					pxRotation->i32STMD_AngleIncrement = -abs(pxRotation->i32STMD_AngleIncrement);
+					pxRotation->xStepDirection = eSTMD_CCW;
+					/* calculate amount of steps needed to reach target */
+					i32StepCount = (pxRotation->i32STMD_CurrentAngle - i32TargetAngle)/pxRotation->i32STMD_StepIncrement;
+					/* and start moving */
+					xSTMDWorkState = eWork_Moving;
+				}
+				else
+				{
+					/* already at the given position */
+					xSTMDWorkState = eWork_Done;
+				}
+			}
+			break;
+		case eWork_Moving:
+			/* first check if there is an abort request */
+			if(eCMD_Abort != xMqCommand.xMQ_Cmd)
+			{
+				/* stepping still necessary ? */
+				if(eSTMD_CW == pxRotation->xStepDirection)
+				{
+					if( 0 != i32StepCount)
+					{
+						/* set direction */
+						HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Dir, pxPinCfg->u16STMD_GPIO_Pin_Dir, GPIO_PIN_RESET);
+						/* turn given amount of steps */
+						while(0 < i32StepCount)
+						{
+							/* step */
+							HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Step, pxPinCfg->u16STMD_GPIO_Pin_Step, GPIO_PIN_SET);
+							osDelay(au08RampUp[RAMPUP_LENGTH - u08RampUpIdx]);
+							HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Step, pxPinCfg->u16STMD_GPIO_Pin_Step, GPIO_PIN_RESET);
+							osDelay(au08RampUp[u08RampUpIdx]);
+							/* count step */
+							i32StepCount--;
+							/* adjust current angle */
+							pxRotation->i32STMD_CurrentAngle += pxRotation->i32STMD_StepIncrement;
+							/* speed control */
+										if(u08RampUpIdx)
+										{
+											u08RampUpIdx--;
+										}
+										else
+										{
+											u08RampUpIdx = 1;
+										}
+						}
+					}
+					else
+					{
+						/* reached position */
+						xSTMDWorkState = eWork_Done;
+					}
+				}
+				else
+				{
+					if( 0 != i32StepCount)
+					{
+						/* set direction */
+						HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Dir, pxPinCfg->u16STMD_GPIO_Pin_Dir, GPIO_PIN_SET);
+						/* turn given amount of steps */
+						while(0 < i32StepCount)
+						{
+							/* step */
+							HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Step, pxPinCfg->u16STMD_GPIO_Pin_Step, GPIO_PIN_SET);
+							osDelay(au08RampUp[RAMPUP_LENGTH - u08RampUpIdx]);
+							HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Step, pxPinCfg->u16STMD_GPIO_Pin_Step, GPIO_PIN_RESET);
+							osDelay(au08RampUp[RAMPUP_LENGTH - u08RampUpIdx]);
+							/* count step */
+							i32StepCount--;
+							/* adjust current angle */
+							pxRotation->i32STMD_CurrentAngle -= pxRotation->i32STMD_StepIncrement;
+							/* speed control */
+										if(u08RampUpIdx)
+										{
+											u08RampUpIdx--;
+										}
+										else
+										{
+											u08RampUpIdx = 1;
+										}
+						}
+					}
+					else
+					{
+						/* reached position */
+						xSTMDWorkState = eWork_Done;
+					}
+				}
+			}
+			else
+			{
+				xSTMDWorkState = eWork_Abort;
+			}
+			break;
+		case eWork_Done:
+			/* inform main task */
+			if(0 != xQSTMDToMainHandle)
+			{
+				xMqCommand.xMQ_Cmd = eCMD_Accepted;
+				xQueueSendToBack(xQSTMDToMainHandle,&xMqCommand,0);
+			}
+			xSTMDWorkState = eWork_Idle;
+			break;
+		case eWork_Abort:
+			/* inform main task */
+			if(0 != xQSTMDToMainHandle)
+			{
+				xMqCommand.xMQ_Cmd = eCMD_Rejected;
+				xQueueSendToBack(xQSTMDToMainHandle,&xMqCommand,0);
+			}
+			xSTMDWorkState = eWork_Idle;
+			break;
+		default:
+			break;
+	}
+    /* */
   }
   /* USER CODE END SMTDWork */
 }

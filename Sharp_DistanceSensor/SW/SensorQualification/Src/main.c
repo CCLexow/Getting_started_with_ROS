@@ -119,7 +119,8 @@ typedef enum eMQ_CommandList
 	eCMD_SetAngleResolution,
 	eCMD_SetStepResolution,
 	eCMD_LimitSwitchHit,
-	eCMD_Abort
+	eCMD_Abort,
+	eCMD_StartTestMode
 }T_MQ_CommandList;
 
 /* structure to hold commands and their parameters which will be passed between tasks */
@@ -194,7 +195,8 @@ typedef enum eSystemMode
 	eSysMode_ContinousScan,
 	eSysMode_StaticScan,
 	eSysMode_Homing,
-	eSysMode_MoveToAngle
+	eSysMode_MoveToAngle,
+	eSysMode_TestMode
 }T_System_Mode;
 
 T_System_Mode xSysMode = eSysMode_Idle; //TODO: change to start up
@@ -763,6 +765,7 @@ T_MQ_Command AnalyseRxCmd(void)
 	char * cmd_set_step_resolution = "STEPRES %d";
 	char * cmd_goto_position = "POS %d";
 	char * cmd_perform_homing = "HOME";
+	char * cmd_perform_testmode = "TEST";
 	char * cmd_abort = "ABORT";
 
 	T_MQ_Command xRetVal;
@@ -841,6 +844,10 @@ T_MQ_Command AnalyseRxCmd(void)
 	{
 		xRetVal.xMQ_Cmd = eCMD_PrintSTMDConfig;
 	}
+	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_testmode))
+	{
+		xRetVal.xMQ_Cmd = eCMD_StartTestMode;
+	}
 	return xRetVal;
 }
 
@@ -873,12 +880,26 @@ void Print_Sensor_Data_Value(uint32_t u32SensorVal)
 	if(USBD_STATE_CONFIGURED == hUsbDeviceFS.dev_state)
 	{
 
-		u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%li %ld\n", xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle, u32SensorVal);
+		//u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%li %ld\n", xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle, u32SensorVal);
+		u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%li %li\n", xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle, i32GetDistanceFromADCVal((uint16_t)u32SensorVal));
 
 		CDC_Transmit_FS(&au08DataOutput[0],strlen(au08DataOutput));
 	}
 }
 
+void Print_Test_Data_Value(uint16_t u16SensorVal)
+{
+	uint16_t u16StrIdx = 0;
+
+	if(USBD_STATE_CONFIGURED == hUsbDeviceFS.dev_state)
+	{
+
+		//u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%li %ld\n", xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle, u16SensorVal);
+		u16StrIdx += sprintf((char *)&au08DataOutput[u16StrIdx], "%d %li\n", u16SensorVal, i32GetDistanceFromADCVal(u16SensorVal));
+
+		CDC_Transmit_FS(&au08DataOutput[0],strlen(au08DataOutput));
+	}
+}
 void Print_Config(void)
 {
 	if(USBD_STATE_CONFIGURED == hUsbDeviceFS.dev_state)
@@ -1489,6 +1510,15 @@ void MainTaskWork(void const * argument)
 				}
 			}
 		}
+		else if(eSysMode_TestMode == xSysMode)
+		{
+			for(uint16_t u16TestReg=0;u16TestReg < 4096;u16TestReg++)
+			{
+				Print_Test_Data_Value(u16TestReg);
+				osDelay(5);
+			}
+			xSysMode = eSysMode_Idle;
+		}
 		else if(eSysMode_Idle == xSysMode)
 		{
 			/* evaluate incoming com message */
@@ -1555,6 +1585,9 @@ void MainTaskWork(void const * argument)
 					si32StopAngle = 0;
 					xWorkTaskResponse = eWork_Started;
 					xSysMode = eSysMode_Homing;
+					break;
+				case eCMD_StartTestMode:
+					xSysMode = eSysMode_TestMode;
 					break;
 				default:
 					break;

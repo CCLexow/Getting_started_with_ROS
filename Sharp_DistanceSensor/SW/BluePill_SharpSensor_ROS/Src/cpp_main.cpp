@@ -27,9 +27,9 @@ std_msgs::String str_msg;
 
 sensor_msgs::LaserScan xmsg_LaserScan;
 
-extern "C" void messageCb(const std_msgs::Bool& msg);
+extern "C" void messageCb(const std_msgs::String& msg);
 ros::Publisher chatter("version", &str_msg);
-ros::Subscriber<std_msgs::Bool> sub("start_ir_scan", messageCb);
+ros::Subscriber<std_msgs::String> sub("start_ir_scan", messageCb);
 
 ros::Publisher xpbIR_Scan("IR_Scan", &xmsg_LaserScan);
 
@@ -240,6 +240,7 @@ extern "C" void DBG_IR_Scan(void)
 extern "C" void Publish_IR_Scan_Data(void)
 {
 	static uint32_t su32MsgIdx = 0;
+	int32_t i32Help;
 
 	/* check, if there is data to transmit */
 	if(0 == pxIRScanToSend)
@@ -248,27 +249,40 @@ extern "C" void Publish_IR_Scan_Data(void)
 		return;
 	}
 	/* prepare distance scan data */
-	for(uint8_t u08Idx=0; u08Idx < IR_SCAN_DATA_LENGTH; u08Idx++)
+	/* invert order if scanning is backwards */
+	if(pxIRScanToSend->i32StartAngle <= pxIRScanToSend->i32StopAngle)
 	{
-	  afltScanData[u08Idx] = ((float)pxIRScanToSend->ai32ScanData[u08Idx])/IR_DISTANCE_SCAN_UNIT;
+		for(uint8_t u08Idx=0; u08Idx < IR_SCAN_DATA_LENGTH; u08Idx++)
+		{
+		  afltScanData[u08Idx] = ((float)pxIRScanToSend->ai32ScanData[u08Idx])/IR_DISTANCE_SCAN_UNIT;
+		}
+	}
+	else
+	{
+		for(uint8_t u08Idx=0; u08Idx < IR_SCAN_DATA_LENGTH; u08Idx++)
+		{
+		  afltScanData[u08Idx] = ((float)pxIRScanToSend->ai32ScanData[(IR_SCAN_DATA_LENGTH-1) - u08Idx])/IR_DISTANCE_SCAN_UNIT;
+		}
+		i32Help = pxIRScanToSend->i32StopAngle;
+		pxIRScanToSend->i32StopAngle = pxIRScanToSend->i32StartAngle;
+		pxIRScanToSend->i32StartAngle = i32Help;
 	}
 
-	xtSysTime.sec = su32MsgIdx;
+
 	/* set values */
 	xmsg_LaserScan.angle_min = 2 * M_PI * ((float)pxIRScanToSend->i32StartAngle) / 3600000;
 	xmsg_LaserScan.angle_max = 2 * M_PI * ((float)pxIRScanToSend->i32StopAngle) / 3600000;
 	xmsg_LaserScan.angle_increment = cfltAngleIncrement;
-	xmsg_LaserScan.time_increment = 4.0/40;
-	xmsg_LaserScan.scan_time = 4.0;
-	xmsg_LaserScan.range_min  = 7.0 / 100;
-	xmsg_LaserScan.range_max = 55.0 / 100;
+	xmsg_LaserScan.time_increment = 4.0/40;	/*ToDo: adjust to correct scan time*/
+	xmsg_LaserScan.scan_time = 4.0;			/*ToDo: adjust to correct scan time*/
+	xmsg_LaserScan.range_min  = 7.0 / 100;	/*ToDo: replace by defines*/
+	xmsg_LaserScan.range_max = 55.0 / 100;	/*ToDo: replace by defines*/
 	xmsg_LaserScan.ranges = &afltScanData[0];
 	xmsg_LaserScan.ranges_length = IR_SCAN_DATA_LENGTH;
 	xmsg_LaserScan.header.frame_id = "IR_Scan_Map";
-	xmsg_LaserScan.header.seq = su32MsgIdx++;
-	//xmsg_LaserScan.header.stamp = ros::Time::now();
-	//xmsg_LaserScan.header.stamp = HAL_GetTick();
+	xtSysTime.sec = su32MsgIdx*4;			/*ToDo: adjust to correct scan time*/
 	xmsg_LaserScan.header.stamp = xtSysTime;
+	xmsg_LaserScan.header.seq = su32MsgIdx++;
 
 	/* publish message */
 	xpbIR_Scan.publish(&xmsg_LaserScan);
@@ -281,8 +295,10 @@ extern "C" void Publish_IR_Scan_Data(void)
 
 uint8_t u08StartScan = 0;
 
-extern "C" void messageCb(const std_msgs::Bool& msg)
+extern "C" void messageCb(const std_msgs::String& msg)
 {
+	run_analyze_cmd(msg.data);
+	/*
 	if(true == msg.data)
 	{
 		u08StartScan = 1;
@@ -291,11 +307,7 @@ extern "C" void messageCb(const std_msgs::Bool& msg)
 	{
 		u08StartScan = 0;
 	}
-}
-
-extern "C" uint8_t u08GetScanStart(void)
-{
-	return u08StartScan;
+	*/
 }
 
 extern "C" void cdc_receive_put(uint8_t value)

@@ -776,7 +776,8 @@ void FlushRxCmd(void)
 	*/
 }
 
-T_MQ_Command AnalyseRxCmd(void)
+
+T_MQ_Command AnalyseRxCmd(const char * ptrString)
 {
 	char * cmd_perform_partial_scan = "PSCAN %d %d %d";
 	char * cmd_perform_continuous_scan = "CSCAN %d";
@@ -800,11 +801,13 @@ T_MQ_Command AnalyseRxCmd(void)
 	int32_t i32ParamC = 0;
 
 	/* analyse received command	*/
-	if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_abort))
-		{
-			xRetVal.xMQ_Cmd = eCMD_Abort;
-		}
-	else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_partial_scan,&i32Param,&i32ParamB, &i32ParamC))
+	//if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_abort))
+	if(0 == strcmp(ptrString, cmd_abort))
+	{
+		xRetVal.xMQ_Cmd = eCMD_Abort;
+	}
+	//else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_partial_scan,&i32Param,&i32ParamB, &i32ParamC))
+	else if(0 < sscanf(ptrString, cmd_perform_partial_scan,&i32Param,&i32ParamB, &i32ParamC))
 	{
 		/* perform partial scan from angle i32ParamB to i32ParamC and take i32Param samples at each angle */
 		xRetVal.xMQ_Cmd = eCMD_PartialScanMeasurement;
@@ -812,31 +815,37 @@ T_MQ_Command AnalyseRxCmd(void)
 		xRetVal.i32MQ_Cmd_ParamB = i32ParamB;
 		xRetVal.i32MQ_Cmd_ParamC = i32ParamC;
 	}
-	else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_set_angle_resolution,&i32Param))
+	//else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_set_angle_resolution,&i32Param))
+	else if(0 < sscanf(ptrString, cmd_set_angle_resolution,&i32Param))
 	{
 		xRetVal.xMQ_Cmd = eCMD_SetAngleResolution;
 		xRetVal.i32MQ_Cmd_ParamA = i32Param;
 	}
-	else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_set_step_resolution,&i32Param))
+	//else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_set_step_resolution,&i32Param))
+	else if(0 < sscanf(ptrString, cmd_set_step_resolution,&i32Param))
 	{
 		xRetVal.xMQ_Cmd = eCMD_SetStepResolution;
 		xRetVal.i32MQ_Cmd_ParamA = i32Param;
 	}
-	else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_goto_position,&i32Param))
+	//else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_goto_position,&i32Param))
+	else if(0 < sscanf(ptrString, cmd_goto_position,&i32Param))
 	{
 		xRetVal.xMQ_Cmd = eCMD_MoveToAngle;
 		xRetVal.i32MQ_Cmd_ParamA = i32Param;
 	}
-	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_homing))
+	//else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_homing))
+	else if(0 == strcmp(ptrString, cmd_perform_homing))
 	{
 		xRetVal.xMQ_Cmd = eCMD_PerformHoming;
 	}
-	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_full_scan))
+	//else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_full_scan))
+	else if(0 == strcmp(ptrString, cmd_perform_full_scan))
 	{
 		/* perform a full resolution scan */
 		xRetVal.xMQ_Cmd = eCMD_FullScanMeasurement;
 	}
-	else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_continuous_scan,&i32Param))
+	//else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_continuous_scan,&i32Param))
+	else if(0 < sscanf(ptrString, cmd_perform_continuous_scan,&i32Param))
 	{
 		if(( 0 < i32Param) && (11 > i32Param))
 		{
@@ -848,20 +857,23 @@ T_MQ_Command AnalyseRxCmd(void)
 		}
 		xRetVal.xMQ_Cmd = eCMD_ContinousScanMeasurment;
 	}
-	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_sample_distance_sensor))
+	//else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_sample_distance_sensor))
+	else if(0 == strcmp(ptrString, cmd_sample_distance_sensor))
 	{
 		/* request to continuously sample the sensor */
 		xRetVal.xMQ_Cmd = eCMD_SampleSensor;
 		xRetVal.i32MQ_Cmd_ParamA = -1;
 
 	}
-	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_stop_sample_distance_sensor))
+	//else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_stop_sample_distance_sensor))
+	else if(0 == strcmp(ptrString, cmd_stop_sample_distance_sensor))
 	{
 		/* request to stop continously sampling the sensor */
 		xRetVal.xMQ_Cmd = eCMD_Abort;
 
 	}
-	else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_sample_distance_sensor_N, &i32Param))
+	//else if(0 < sscanf((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_sample_distance_sensor_N, &i32Param))
+	else if(0 < sscanf(ptrString, cmd_sample_distance_sensor_N, &i32Param))
 	{
 		if(0 < i32Param){
 			if(UINT16_MAX >= i32Param)
@@ -871,15 +883,35 @@ T_MQ_Command AnalyseRxCmd(void)
 			}
 		}
 	}
-	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_print_stmd_config))
+	//else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_print_stmd_config))
+	else if(0 == strcmp(ptrString, cmd_print_stmd_config))
 	{
 		xRetVal.xMQ_Cmd = eCMD_PrintSTMDConfig;
 	}
-	else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_testmode))
+	//else if(0 == strcmp((const char *)&xUartRxCmd.au08CommandBuffer[0], cmd_perform_testmode))
+	else if(0 == strcmp(ptrString, cmd_perform_testmode))
 	{
 		xRetVal.xMQ_Cmd = eCMD_StartTestMode;
 	}
 	return xRetVal;
+}
+
+void run_analyze_cmd(const char * ptrString)
+{
+
+	T_MQ_Command xMqCmd;
+
+	xMqCmd = AnalyseRxCmd(ptrString);
+
+	/* check if a valid command was received */
+	if(eCMD_None != xMqCmd.xMQ_Cmd)
+	{
+		/* inform main task about new command */
+		if(0 != xQCOMToMainHandle)
+		{
+			xQueueSendToBack(xQCOMToMainHandle,&xMqCmd,0);
+		}
+	}
 }
 
 uint8_t au08DataOutput[150];
@@ -1403,16 +1435,6 @@ void MainTaskWork(void const * argument)
 			xQueueReceive(xQCOMToMainHandle, &xMqCOMCmd,0);
 		}
 
-		if(u08GetScanStart())
-		{
-			xMqCOMCmd.xMQ_Cmd = eCMD_ContinousScanMeasurment;
-			xMqCOMCmd.i32MQ_Cmd_ParamA = 1;
-		}
-		else
-		{
-			xMqCOMCmd.xMQ_Cmd = eCMD_Abort;
-		}
-
 		/* check state */
 		if(eSysMode_StartUp == xSysMode)
 		{
@@ -1764,7 +1786,7 @@ void COMTaskWork(void const * argument)
 
 		if(1 == xUartRxCmd.u08CommandReceived)
 		{
-			xMqCmd = AnalyseRxCmd();
+			//xMqCmd = AnalyseRxCmd();
 			FlushRxCmd();
 
 			/* check if a valid command was received */

@@ -1023,7 +1023,7 @@ typedef enum eMove_LimitSwitch
 	eMove_CheckLimitSwitch
 }T_Move_LimitSwitch;
 
-T_WorkStates xScanWork(T_WorkStates xWorkState, T_STMD_StepDirection xStepDir, int32_t i32StartAngle, int32_t i32StopAngle, uint16_t u16SampleCount)
+T_WorkStates xScanWork(T_WorkStates xWorkState, int32_t i32StartAngle, int32_t i32StopAngle, uint16_t u16SampleCount)
 {
 	static int32_t si32NextAngle = 0;
 	static uint16_t su16SCount = 0;
@@ -1053,11 +1053,11 @@ T_WorkStates xScanWork(T_WorkStates xWorkState, T_STMD_StepDirection xStepDir, i
 			/* determine the direction of turning */
 			if(i32StartAngle <= i32StopAngle)
 			{
-				xSTMD_Config.xSTMD_Rotation.xStepDirection = eSTMD_CW;
+				xSTMD_Config.xSTMD_Rotation.xStepDirection = eSTMD_CCW;
 			}
 			else if(i32StartAngle > i32StopAngle)
 			{
-				xSTMD_Config.xSTMD_Rotation.xStepDirection = eSTMD_CCW;
+				xSTMD_Config.xSTMD_Rotation.xStepDirection = eSTMD_CW;
 			}
 			break;
 		case eWork_ReqMove:
@@ -1182,7 +1182,7 @@ T_WorkStates xScanWork(T_WorkStates xWorkState, T_STMD_StepDirection xStepDir, i
 				/* sampling done for the current angle */
 				su16SCount = u16SampleCount;
 				/* check if end position was reached */
-				if(eSTMD_CW == xSTMD_Config.xSTMD_Rotation.xStepDirection)
+				if(eSTMD_CCW == xSTMD_Config.xSTMD_Rotation.xStepDirection)
 				{
 					if(xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle < i32StopAngle)
 					{
@@ -1337,13 +1337,13 @@ T_WorkStates xSTMD_PerformStepping(T_STMD_StepDirection xStepDir, int32_t i32Ste
 	{
 		/* set direction */
 		HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Dir, pxPinCfg->u16STMD_GPIO_Pin_Dir, GPIO_PIN_RESET);
-		i32SteppingDirection = 1;
+		i32SteppingDirection = -1;
 	}
 	else
 	{
 		/* set direction */
 		HAL_GPIO_WritePin(pxPinCfg->xSTMD_GPIO_Port_Pin_Dir, pxPinCfg->u16STMD_GPIO_Pin_Dir, GPIO_PIN_SET);
-		i32SteppingDirection = -1;
+		i32SteppingDirection = 1;
 	}
 
 	/* 2.) perform stepping */
@@ -1453,7 +1453,7 @@ void MainTaskWork(void const * argument)
 			else
 			{
 				/* perform scanning */
-				xWorkTaskResponse = xScanWork(xWorkTaskResponse, eSTMD_CW,si32StartAngle,si32StopAngle,su16SampleCount);
+				xWorkTaskResponse = xScanWork(xWorkTaskResponse, si32StartAngle,si32StopAngle,su16SampleCount);
 				if((eWork_Abort == xWorkTaskResponse) || (eWork_Done == xWorkTaskResponse))
 				{
 					/* error or done -> switch to idle mode */
@@ -1476,7 +1476,7 @@ void MainTaskWork(void const * argument)
 			else
 			{
 				/* perform scanning */
-				xWorkTaskResponse = xScanWork(xWorkTaskResponse, eSTMD_CW,si32StartAngle,si32StopAngle,su16SampleCount);
+				xWorkTaskResponse = xScanWork(xWorkTaskResponse, si32StartAngle, si32StopAngle, su16SampleCount);
 				if(eWork_Abort == xWorkTaskResponse)
 				{
 					/* error during scan => abort */
@@ -1492,7 +1492,7 @@ void MainTaskWork(void const * argument)
 						/* TODO: Change form Quick'n'Dirty to good style */
 						while((eWork_Done != xWorkTaskResponse) && (eWork_Abort != xWorkTaskResponse))
 						{
-							xWorkTaskResponse = xMoveWork(xWorkTaskResponse,3588750,eMove_IgnoreLimitSwitch);
+							xWorkTaskResponse = xMoveWork(xWorkTaskResponse,11250,eMove_IgnoreLimitSwitch);
 							osDelay(5);
 						}
 						/* move successful ? */
@@ -1500,8 +1500,8 @@ void MainTaskWork(void const * argument)
 						{
 							/* and then restart */
 							/* TODO: CSCAN: calculate start and stop angle according to the current angle resolution */
-							si32StartAngle = 3588750;
-							si32StopAngle = 11250;
+							si32StartAngle = 11250;
+							si32StopAngle = 3588750;
 							xWorkTaskResponse = eWork_Started;
 						}
 						else
@@ -1516,7 +1516,7 @@ void MainTaskWork(void const * argument)
 						/* TODO: Change form Quick'n'Dirty to good style */
 						while((eWork_Done != xWorkTaskResponse) && (eWork_Abort != xWorkTaskResponse))
 						{
-							xWorkTaskResponse = xMoveWork(xWorkTaskResponse,0,eMove_IgnoreLimitSwitch);
+							xWorkTaskResponse = xMoveWork(xWorkTaskResponse,3600000,eMove_IgnoreLimitSwitch);
 							osDelay(5);
 						}
 						/* move successful ? */
@@ -1524,8 +1524,8 @@ void MainTaskWork(void const * argument)
 						{
 							/* and then restart */
 							/* TODO: CSCAN: calculate start and stop angle according to the current angle resolution */
-							si32StartAngle = 0;
-							si32StopAngle = 3577500;
+							si32StartAngle = 360000;
+							si32StopAngle = 22500;
 							xWorkTaskResponse = eWork_Started;
 						}
 						else
@@ -1547,8 +1547,8 @@ void MainTaskWork(void const * argument)
 			{
 				/* request sampling */
 				SensorSamplingStart();
-						/* sensor sampling request successful */
-						u08SampleSensorRQ = 1;
+				/* sensor sampling request successful */
+				u08SampleSensorRQ = 1;
 
 			}
 			else
@@ -1607,7 +1607,7 @@ void MainTaskWork(void const * argument)
 				if(eWork_LimitSwitchHit == xWorkTaskResponse)
 				{
 					/* set current position to zero */
-					xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle = 0;
+					xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle = 3600000;
 					xSysMode = eSysMode_Idle;
 				}
 				else if((eWork_Abort == xWorkTaskResponse) || (eWork_Done == xWorkTaskResponse))
@@ -1630,7 +1630,7 @@ void MainTaskWork(void const * argument)
 				osDelay(5);
 			}
 					xSysMode = eSysMode_Idle;
-				}
+		}
 		else if(eSysMode_Idle == xSysMode)
 		{
 			/* evaluate incoming com message */
@@ -1651,8 +1651,8 @@ void MainTaskWork(void const * argument)
 				case eCMD_ContinousScanMeasurment:
 					/* set parameters */
 					/* TODO: CSCAN: calculate start and stop angle according to the current angle resolution */
-					si32StartAngle = 0;
-					si32StopAngle = 3577500;
+					si32StartAngle = 3600000;
+					si32StopAngle = 22500;
 					su16SampleCount = (uint16_t)xMqCOMCmd.i32MQ_Cmd_ParamA;
 					/* set state */
 					xWorkTaskResponse = eWork_Started;
@@ -1692,9 +1692,9 @@ void MainTaskWork(void const * argument)
 					break;
 				case eCMD_PerformHoming:
 					/* preset current position */
-					xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle = 450000;
+					xSTMD_Config.xSTMD_Rotation.i32STMD_CurrentAngle = 3150000;
 					/* prepare move */
-					si32StopAngle = 0;
+					si32StopAngle = 3600000;
 					xWorkTaskResponse = eWork_Started;
 					xSysMode = eSysMode_Homing;
 					break;
@@ -1846,13 +1846,13 @@ void SMTDWork(void const * argument)
 				/* choose in which direction to step */
 				if(i32TargetAngle > pxRotation->i32STMD_CurrentAngle)
 				{
-					pxRotation->xStepDirection = eSTMD_CW;
+					pxRotation->xStepDirection = eSTMD_CCW;
 					/* calculate amount of steps needed to reach target */
 					i32StepCount = (i32TargetAngle - pxRotation->i32STMD_CurrentAngle)/pxRotation->i32STMD_StepIncrement;
 				}
 				else if(i32TargetAngle < pxRotation->i32STMD_CurrentAngle)
 				{
-					pxRotation->xStepDirection = eSTMD_CCW;
+					pxRotation->xStepDirection = eSTMD_CW;
 					/* calculate amount of steps needed to reach target */
 					i32StepCount = (pxRotation->i32STMD_CurrentAngle - i32TargetAngle)/pxRotation->i32STMD_StepIncrement;
 					}
